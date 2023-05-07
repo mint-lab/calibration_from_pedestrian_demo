@@ -4,8 +4,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 import pandas as pd 
-from calib_lines import calib_camera_nlines_ransac
-from calib_lines_stat import calib_camera_stat
+import json 
+from calib_lines import calib_camera_nlines_ransac, calib_camera_stat
 from pprint import pprint
 config ={
         "cam_f" : 1000, 
@@ -17,6 +17,20 @@ config ={
         "cam_w" : 1920, 
         "cam_h" : 1080
 }
+
+
+
+def load_json2exp(filepath = 'line_segment.json'):
+    with open(filepath,'r') as f: 
+        from_file = json.load(f)
+        a = from_file['a']
+        b = from_file['b']
+        W = from_file['cam_w']
+        H = from_file['cam_h']
+
+
+
+
 
 def create_synthetic_data(n = 50, l = 1):
 
@@ -103,6 +117,5 @@ if __name__ =="__main__" :
                             cam_w = config["cam_w"], 
                             cam_h = config["cam_h"])
     
-    pprint(ret)
 
 
