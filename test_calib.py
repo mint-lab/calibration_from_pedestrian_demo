@@ -1,8 +1,8 @@
 import numpy as np 
-from calibration.calib_lines import calib_camera_ransac, calib_camera_nlines_ransac
+from calib_lines import calib_camera_ransac, calib_camera_nlines_ransac
 import json 
 import cv2 
-from calibration.calib_lines_stat import calib_camera_iqr
+from calib_lines_stat import calib_camera_iqr
 
 with open('line_segment.json','r') as f: 
     from_file = json.load(f)

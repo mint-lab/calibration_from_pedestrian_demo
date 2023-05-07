@@ -2,8 +2,7 @@ import numpy as np
 from numpy.linalg import inv,svd
 from scipy.spatial.transform import Rotation
 import cv2
-import matplotlib.pyplot as plt 
-from calibration.outlier_detect import outlier_iqr, outlier_zscore
+from outlier_detect import outlier_iqr, outlier_zscore
 
 def gaussian_noise(x:list,
                    mu:float,
@@ -32,13 +31,13 @@ def calib_camera_stat(a, b, iqr = True, line_height=None, **config):
         M[s:e, n] = b[0]
         M[s:e, n+i] = -b[i]
         
-    #Method 1) Using SVD
+    # Solve Mv = 0 by SVD 
     _, _, Vh = np.linalg.svd(M)
     v = Vh[:][-1]
     lm, mu = v[:n, np.newaxis], v[n:, np.newaxis]
 
+    # To detect outlier, divide both 
     lm_mu = lm / mu 
-
     if iqr: 
         outlier_index= outlier_iqr(lm_mu)
     else: 
@@ -56,10 +55,6 @@ def calib_camera_stat(a, b, iqr = True, line_height=None, **config):
     #Calculate 'f' using Equation (24) 
     c = mu * b - lm * a
     d = lm * a - lm[0] * a[0]
-
-    c = [c[i] for i in range(len(d)) if d[i] < 1e-4]
-    d = [d[i] for i in range(len(d)) if d[i] < 1e-4]
-
     f_n = sum([(ci[0]*di[0] + ci[1]*di[1]) * ci[2]*di[2] for ci, di in zip(c[1:], d[1:])])
     f_d = sum([(ci[2]*di[2])**2 for ci, di in zip(c[1:], d[1:])])
     #assert f_d > 0
@@ -123,7 +118,7 @@ def calib_camera_stat(a, b, iqr = True, line_height=None, **config):
     p_3 =[ p[i][2] for i in range(n)]
     q_3 =[ q[i][2] for i in range(n)]
     height = sum(p_3+q_3)/(2*n) + l/2
-    
+  
     #Scaling to get absolute size 
     height = height*(line_height/l)
     
@@ -150,14 +145,14 @@ if __name__ == "__main__":
     phi_gt = np.deg2rad(10) # Camera 좌표계에서 바라보는 각도 
     cam_pos = [0,0,h] # world 좌표계에서 카메라의 position 을 관찰 했을때 
     cam_w, cam_h =(1920, 1080)
-    n = 50
+    n = 200
     noise_mean = 0
     noise_std = 2
     
     lines =[]
     for i in range(n):
-        x = -2 + i*0.5
-        y = x + 5
+        x = np.random.uniform(0,10)
+        y = np.random.uniform(0,10)
         lines.append(np.array([[x,y,0],
                                 [x,y,l]]))
    
@@ -194,7 +189,7 @@ if __name__ == "__main__":
     #head point b 
     b =[bb[1] for bb in p_lines]
     #calibration Result 
-    ret = calib_camera_stat(a, b, iqr=False, line_height=l, cam_w = cam_w, cam_h = cam_h)                
+    ret = calib_camera_stat(a, b, iqr=True, line_height=l, cam_w = cam_w, cam_h = cam_h)                
     focal_length, theta, phi, height = ret['f'],ret['theta'],ret['phi'],ret['height']
     
     print("1.define calibration :\n")

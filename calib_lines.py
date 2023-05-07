@@ -1,18 +1,17 @@
 import numpy as np
-from numpy.linalg import inv,svd,eig
+from numpy.linalg import inv,svd
 from scipy.linalg import norm
 from scipy.spatial.transform import Rotation
 from numpy import random
 import cv2
 import matplotlib.pyplot as plt 
-from calibration.outlier_detect import outlier_iqr
+from outlier_detect import outlier_iqr
 
-def gaussian_noise(x:list,
-                   mu:float,
-                   std:float)->np.ndarray:
-    x_noisy = [x[i] + np.random.normal(mu,std,size=x[0].shape) for i in range(len(x))]
+
+
+def gaussian_noise(x, mu, std):
+    x_noisy = [x[i] + random.normal(mu,std,size=x[0].shape) for i in range(len(x))]
     return x_noisy
-
 
 def calib_camera_ransac(a, b,
                         line_height=None,
@@ -42,11 +41,10 @@ def calib_camera_ransac(a, b,
 
     _, _, Vh = np.linalg.svd(M)
     v = Vh[:][-1]
-    viz = v 
     lm, mu = v[:n, np.newaxis], v[n:, np.newaxis]
-    outlier_index = outlier_iqr(lm/mu) 
     
     # Delete Outliers 
+    outlier_index = outlier_iqr(lm/mu) 
     lm = np.array([lm[i] for i in range(n) if i not in outlier_index])
     mu = np.array([mu[i] for i in range(n) if i not in outlier_index])
     a = np.array([a[i] for i in range(n) if i not in outlier_index])
@@ -54,16 +52,14 @@ def calib_camera_ransac(a, b,
 
     # Recalculate the number of inliers
     n = len(a)
-
     best_score = -1 
-
     for i in range(ransac_trial): 
-        # Select a points 
+
+        # Select two points randomly
         indices = []
         pts = []
         while len(indices) != 2: 
-            idx = np.random.randint(0,n) 
-            
+            idx = np.random.randint(0,n)     
             if idx not in pts:
                 indices.append(idx)
             else: continue 
@@ -72,14 +68,14 @@ def calib_camera_ransac(a, b,
             pts.append([lm[index],mu[index]])
         
         # Make a line 
-        slope =  pts[1][1]-pts[0][1]/pts[1][0]-pts[0][0]
+        slope =  pts[1][1]-pts[0][1] / pts[1][0]-pts[0][0]
         y_int =  -slope*pts[0][0] + pts[0][1]
 
         line = np.array([-slope,1,-y_int])
         score  = 0 
 
         for i in range(n): 
-            err = np.fabs(line[0]*lm[i]+line[1]*mu[i]+line[2])
+            err = np.fabs(line[0] * lm[i] + line[1] * mu[i] + line[2])
             if err < ransac_tresh:
                 score += 1 
             
@@ -122,21 +118,20 @@ def calib_camera_ransac(a, b,
     R = Rz@Rx
     
     # Estimate the height of the camera : cam_pos
-    lma1 = lm[0]*a[0]
+    lma1 = lm[0] * a[0]
     lma1 = lma1[:, np.newaxis]
-    lma2 = lm[1]*a[1]
+    lma2 = lm[1] * a[1]
     lma2 = lma2[:, np.newaxis]
     P = Q @ R.T @ kinv @ np.hstack((lma1,lma2))
+    
     #Scaling
     height = P[2][0] * (line_height / length)  
     
     # result 
-    result = dict()
-    result['f'] = f
-    result['theta'] =theta
-    result['phi'] = phi
-    result['height'] = height
-    result['viz'] = viz
+    result ={'f': f, 
+             'theta': theta, 
+             'phi' : phi, 
+             'height': height}
     return result
 
 
@@ -316,15 +311,14 @@ if __name__ == "__main__":
     phi_gt = np.deg2rad(0) # Camera 좌표계에서 바라보는 각도 
     cam_pos = [0,0,h] # world 좌표계에서 카메라의 position 을 관찰 했을때 
     cam_w, cam_h =(1920, 1080)
-    n = 50
+    n = 300
     noise_mean = 0
-    noise_std = 2
-    
+    noise_std = 6
     
     lines =[]
     for i in range(n):
-        x = -2 + i*0.5
-        y = 0.5*x + 5
+        x = np.random.uniform(0,10)
+        y = np.random.uniform(0,10)
         lines.append(np.array([[x,y,0],
                                 [x,y,l]]))
    
@@ -349,19 +343,19 @@ if __name__ == "__main__":
     ### Function for implement papers
     
     #visualize data
-    plt.figure()
-    for x in p_lines:
-        plt.plot(x[:,0], x[:,1]) 
-    plt.xlim([0,cam_w])
-    plt.ylim([cam_h,0])
-    plt.legend()
-    plt.show()
-    #bottom point a  
+    # plt.figure()
+    # for x in p_lines:
+    #     plt.plot(x[:,0], x[:,1]) 
+    # plt.xlim([0,cam_w])
+    # plt.ylim([cam_h,0])
+    # plt.legend()
+    # plt.show()
+    # #bottom point a  
     a =[aa[0] for aa in p_lines]
     #head point b 
     b =[bb[1] for bb in p_lines]
    
-    #calibration Result 
+    # calibration Result 
 
     ret  = calib_camera_nlines_ransac(a, 
                                 b,
@@ -375,9 +369,10 @@ if __name__ == "__main__":
 
     lm,mu = viz[:n,np.newaxis], viz [n:,np.newaxis]
     lm_mu = lm/mu
+    # Visualize Outliers
     x = outlier_iqr(lm_mu)
     plt.scatter(np.arange(n),lm_mu)
-    plt.scatter(x,lm_mu[x],color = 'r')
+    plt.scatter(x, lm_mu[x], color = 'r')
     plt.xlabel("Index")
     plt.ylabel("lambda divided mu")
     plt.show()
