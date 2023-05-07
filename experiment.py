@@ -96,7 +96,8 @@ if __name__ =="__main__" :
     # Synthetic
     a, b = create_synthetic_data(n = 240)
 
-    # iqr 
+    # iqr
+    ret_list = [] 
     ret = calib_camera_stat(a, b, iqr =True, 
                             line_height = config["l"], 
                             cam_w = config["cam_w"], 
