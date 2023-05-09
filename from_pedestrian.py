@@ -11,8 +11,9 @@ mp_drawing_styles = solutions.drawing_styles
 pose = mp_pose.Pose()
 
 #Read Videoo 
-path ='/home/chahnoseo/calib_from_pedestrian/data'
-filePath = os.path.join(path,"WIN_20230421_19_17_39_Pro (1).mp4")
+path ='/home/chahnoseo/video_for_exp'
+filename = "data_miraehall_center.mp4"
+filePath = os.path.join(path, filename)
 cap = cv2.VideoCapture(filePath)
 
 if os.path.isfile(filePath):
@@ -33,7 +34,8 @@ while cap.isOpened():
     success, image = cap.read()
     
     if not success:
-        continue
+        final = image
+        break
     
     image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
     image.flags.writeable = False    
@@ -60,36 +62,34 @@ while cap.isOpened():
     bottom = np.array((hip_x,hip_y))
     
     cv2.line(image, head ,bottom , color=(0,0,255))
-    t += 1
-    if t% 5 == 0:
-        head_list.append(head.tolist())
-        bottom_list.append(bottom.tolist())
-        t = 0
-        
-    # 보기 편하게 이미지를 좌우 반전합니다.
 
+    head_list.append(head.tolist())
+    bottom_list.append(bottom.tolist())
+    # 보기 편하게 이미지를 좌우 반전합니다.
     cv2.imshow('mediapipe results',image)
 
-    if cv2.waitKey(5) & 0xFF == 27:
-        final = image 
+    if cv2.waitKey(1) & 0xFF == 27:
         break
 
-for h , b in zip(head_list,bottom_list):
-    cv2.line(final,h,b,color=(255,0,0))
     
-cap.release()
-cv2.destroyAllWindows()
-
 
 # Output 
 # 1. cam_w, cam_h
 # 2. pixel point of head and bottom point of line segment 
-with open("line_segment.json",'w') as f:
+
+if "center" in filename:
+    json_name = "line_segment_center.json"
+elif "leftside" in filename:
+    json_name = "line_segment_leftside.json"
+    
+with open(json_name,'w') as f:
     result = dict()
     result['cam_w'] = cam_w
     result['cam_h'] = cam_h
     result['a'] = bottom_list
     result['b'] = head_list
+    
     json.dump(result,f,indent=4)
+
 
 

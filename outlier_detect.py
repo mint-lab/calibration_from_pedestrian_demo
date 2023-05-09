@@ -12,8 +12,8 @@ def outlier_iqr(data, w= 1.5):
     ub = q_75 + iqr_w
     
     condition = (data < lb)|(ub < data)
-    outlier_index = np.where(condition)
-    outlier_index = outlier_index[0].tolist()
+    outlier_index, _ = np.where(condition)
+    outlier_index = outlier_index.tolist()
     return outlier_index 
 
     
@@ -21,5 +21,5 @@ def outlier_zscore(data):
     m = np.mean(data)
     s = np.std(data)
     z = (data-m)/ s 
-    outlier_index = np.where(z > 3)
+    outlier_index,_= np.where(z > 3)
     return outlier_index

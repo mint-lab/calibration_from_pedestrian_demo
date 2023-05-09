@@ -1,5 +1,5 @@
 import numpy as np
-from numpy.linalg import inv,svd
+from numpy.linalg import inv,svd,pinv
 from scipy.linalg import norm
 from scipy.spatial.transform import Rotation
 from numpy import random
@@ -14,15 +14,16 @@ def gaussian_noise(x, mu, std):
     x_noisy = [x[i] + random.normal(mu,std,size=x[0].shape) for i in range(len(x))]
     return x_noisy
 
-def calib_camera_vanilla(a, b, line_heigth):
-    assert len(a) == len(b) and len(a) > 0
+def calib_camera_vanilla(a, b, line_heigth, **config):
+    
+    #assert len(a) == len(b) and len(a) > 0
     
     # Prepare 'a' and 'b' w.r.t. the paper
     n = len(a)
-    center = np.array([(cam_w - 1) / 2, (cam_h - 1) / 2])
+    center = np.array([(config["cam_w"] - 1) / 2, (config["cam_h"] - 1) / 2])
     a = a - center
     b = b - center
-    a = np.hstack((a, np.ones((n, 1)))) # To homogeneous notation
+    a = np.hstack((a, np.ones((n, 1)))) # To homogeneous notatione
     b = np.hstack((b, np.ones((n, 1)))) #    (n x 2) to (n x 3)
 
     # Solve 'M @ v = 0 such that v > 0' in Equation (21)
@@ -49,12 +50,17 @@ def calib_camera_vanilla(a, b, line_heigth):
     f_d = sum([(ci[2]*di[2])**2 for ci, di in zip(c[1:], d[1:])])
     #assert f_d > 0
     #assert f_n < 0
-    sqrt = -f_n / f_d
+    
+    eps = 1e-5
+    sqrt = -f_n / (f_d + eps) 
     f = np.sqrt(sqrt)
     k= np.array([[f, 0., 0], [0., f, 0], [0., 0., 1.]]) 
     
     #Closed form of estimated r3
-    kinv = inv(k)
+    try:
+        kinv = inv(k)
+    except np.linalg.LinAlgError:
+        return "nan"
     #Initialize kinv_cs
     kinv_cs = np.zeros((len(c), 3, 1))
     #Update kinv_cs 
@@ -78,14 +84,17 @@ def calib_camera_vanilla(a, b, line_heigth):
         A = A + element   
 
     # r3 can be computed as the eigenvector of this formula(A) corresponding to the smallest eigenvalue 
-    _,_,Vh = svd(-A)
+    try:
+        _,_,Vh = svd(-A)
+    except np.linalg.LinAlgError: return "nan"
     r3 =Vh[:][-1]
     
     #Solve rvec
     theta = np.arccos(r3[2])
     phi = np.arctan(-r3[0]/r3[1])
-    R = Rz(phi)@Rx(theta)
-
+    Rx = np.array([[1., 0, 0], [0, np.cos(theta), -np.sin(theta)], [0, np.sin(theta), np.cos(theta)]])
+    Rz = np.array([[np.cos(phi), -np.sin(phi), 0], [np.sin(phi), np.cos(phi), 0], [0, 0, 1.]])
+    R = Rz@Rx
     #Closed form of estimated length of line segment
     l = r3.T@sum(kinv_cs)/n
 
@@ -125,6 +134,7 @@ def calib_camera_vanilla(a, b, line_heigth):
     
 
 def calib_camera_ransac(a, b,
+                        iqr =True,
                         line_height=None,
                         r_iter = 100,
                         trsh = 3,
@@ -153,14 +163,19 @@ def calib_camera_ransac(a, b,
     _, _, Vh = np.linalg.svd(M)
     v = Vh[:][-1]
     lm, mu = v[:n, np.newaxis], v[n:, np.newaxis]
-    
+    lm_mu = lm/mu
     # Delete Outliers 
-    outlier_index = outlier_iqr(lm/mu) 
-    lm = np.array([lm[i] for i in range(n) if i not in outlier_index])
-    mu = np.array([mu[i] for i in range(n) if i not in outlier_index])
-    a = np.array([a[i] for i in range(n) if i not in outlier_index])
-    b = np.array([b[i] for i in range(n) if i not in outlier_index])
-
+    if iqr: 
+        outlier_index= outlier_iqr(lm_mu)
+    else: 
+        outlier_index= outlier_zscore(lm_mu)
+    try:
+        lm = np.array([lm[i] for i in range(n) if i not in outlier_index])
+        mu = np.array([mu[i] for i in range(n) if i not in outlier_index])
+        a = np.array([a[i] for i in range(n) if i not in outlier_index])
+        b = np.array([b[i] for i in range(n) if i not in outlier_index])
+    except :breakpoint()
+    
     # Recalculate the number of inliers
     n = len(a)
     best_score = -1 
@@ -213,10 +228,16 @@ def calib_camera_ransac(a, b,
     n_d = -f_n/f_d
     f = np.sqrt(abs(n_d))
     k= np.array([[f, 0., 0], [0., f, 0], [0., 0., 1.]])
-    kinv =inv(k)
+    try:
+        kinv = inv(k)
+    except np.linalg.LinAlgError:
+        return "nan"
     
-    #Solve theta and phi
-    length = norm(kinv@c)
+    #Solve theta and phif
+    try:
+        length = norm(kinv@c)
+    except (np.linalg.LinAlgError, ValueError):
+        return "nan"
     r3 =(kinv@c)/length
     theta = np.arccos(r3[2])
     phi = np.arctan(-r3[0]/r3[1])
@@ -248,6 +269,7 @@ def calib_camera_ransac(a, b,
 
 #Calibartion Algorithm using n line segments 
 def calib_camera_nlines_ransac(a,b,
+                            iqr =True,
                             line_height=None,
                             r_iter = 100,
                             trsh = 3,
@@ -275,11 +297,12 @@ def calib_camera_nlines_ransac(a,b,
     #Method 1) Using SVD
     _, _, Vh = np.linalg.svd(M)
     v = Vh[:][-1]
-    viz = v 
     lm, mu = v[:n, np.newaxis], v[n:, np.newaxis]
-
-    outlier_index = outlier_iqr(lm/mu) 
-    
+    lm_mu = lm/mu
+    if iqr: 
+        outlier_index= outlier_iqr(lm_mu)
+    else: 
+        outlier_index= outlier_zscore(lm_mu)
     # Delete Outliers 
     lm = np.array([lm[i] for i in range(n) if i not in outlier_index])
     mu = np.array([mu[i] for i in range(n) if i not in outlier_index])
@@ -337,12 +360,16 @@ def calib_camera_nlines_ransac(a,b,
     f_d = sum([(ci[2]*di[2])**2 for ci, di in zip(c[1:], d[1:])])
     #assert f_d > 0
     #assert f_n < 0
-    sqrt = -f_n / f_d
+    eps = 1e-6
+    sqrt = -f_n / (f_d + eps)
     f = np.sqrt(sqrt)
     k= np.array([[f, 0., 0], [0., f, 0], [0., 0., 1.]]) 
     
     #Closed form of estimated r3
-    kinv = inv(k)
+    try:
+        kinv = inv(k)
+    except np.linalg.LinAlgError:
+        return "nan"
     #Initialize kinv_cs
     kinv_cs = np.zeros((len(c), 3, 1))
     #Update kinv_cs 
@@ -365,10 +392,12 @@ def calib_camera_nlines_ransac(a,b,
     for element in crs_kinv_cs_2:
         A = A + element   
 
-    # r3 can be computed as the eigenvector of this formula(A) corresponding to the smallest eigenvalue 
-    _,_,Vh = svd(-A)
-    r3 =Vh[:][-1]
-    
+    # r3 can be computed as the eigenvector of this formula(A) corresponding to the smallest eigenvalue
+    try:
+        _,_,Vh = svd(-A)
+        r3 =Vh[:][-1]
+    except np.linalg.LinAlgError: return "nan"
+
     #Solve rvec
     theta = np.arccos(r3[2])
     phi = np.arctan(-r3[0]/r3[1])
@@ -409,7 +438,7 @@ def calib_camera_nlines_ransac(a,b,
     result['theta'] =theta
     result['phi'] = phi
     result['height'] = height
-    result['viz'] = viz
+   
     return result
 
 
@@ -463,12 +492,17 @@ def calib_camera_stat(a, b, iqr = True, line_height=None, **config):
     f_d = sum([(ci[2]*di[2])**2 for ci, di in zip(c[1:], d[1:])])
     #assert f_d > 0
     #assert f_n < 0
-    sqrt = -f_n / f_d
+
+    eps = 1e-6
+    sqrt = -f_n / (f_d + eps)
     f = np.sqrt(sqrt)
     k= np.array([[f, 0., 0], [0., f, 0], [0., 0., 1.]]) 
     
     #Closed form of estimated r3
-    kinv = inv(k)
+    try:
+        kinv = inv(k)
+    except:
+        return "nan"
     #Initialize kinv_cs
     kinv_cs = np.zeros((len(c), 3, 1))
     #Update kinv_cs 
@@ -492,9 +526,10 @@ def calib_camera_stat(a, b, iqr = True, line_height=None, **config):
         A = A + element   
 
     # r3 can be computed as the eigenvector of this formula(A) corresponding to the smallest eigenvalue 
-    _,_,Vh = svd(-A)
-    r3 =Vh[:][-1]
-    
+    try:    
+        _,_,Vh = svd(-A)
+        r3 =Vh[:][-1]
+    except np.linalg.LinAlgError: return "nan"
     #Solve rvec
     theta = np.arccos(r3[2])
     phi = np.arctan(-r3[0]/r3[1])

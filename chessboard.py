@@ -65,10 +65,10 @@ for _ in images:
     obj_points.append(objp)
 
 # Calibrate Camera
-K = np.eye(3,3, dtype=np.float32)
+K = np.eye(3, 3, dtype=np.float32)
 dist_coeff = np.zeros((4,1))
-flags = cv2.CALIB_USE_EXTRINSIC_GUESS| cv2.CALIB_FIX_INTRINSIC | cv2.CALIB_FIX_FOCAL_LENGTH | cv2.CALIB_FIX_PRINCIPAL_POINT | cv2.CALIB_FIX_K1 | cv2.CALIB_FIX_K2 | cv2.CALIB_FIX_K3
-rms, K, dist_coeff, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, (h,w), None, None,flags = flags)
+# flags = cv2.CALIB_ZERO_TANGENT_DIST |cv2.CALIB_FIX_K3 | cv2.CALIB_FIX_ASPECT_RATIO | cv2.CALIB_FIX_PRINCIPAL_POINT
+rms, K, dist_coeff, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, (h,w), None, None)
 
 # Report calibration results
 print("## Camera Calibration Results")
