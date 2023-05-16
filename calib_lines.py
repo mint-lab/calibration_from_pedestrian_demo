@@ -438,6 +438,7 @@ def calib_camera_nlines_ransac(a,b,
     result['theta'] =theta
     result['phi'] = phi
     result['height'] = height
+    result['viz'] =v
    
     return result
 

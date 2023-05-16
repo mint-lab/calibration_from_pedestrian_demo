@@ -8,6 +8,8 @@ import json
 import matplotlib.pyplot as plt 
 from calib_lines import calib_camera_nlines_ransac, calib_camera_stat, calib_camera_vanilla, calib_camera_ransac
 from pprint import pprint
+import multiprocessing
+from multiprocessing import cpu_count
 import argparse
 config ={
         "cam_f" : 1000, 
@@ -155,10 +157,7 @@ def visualize_result(x_value:np.array,
     for method in methods:
         plt.plot(x_value, y_value[method], label = method)
         plt.legend()
-        
-        # success Rate 
-
-        pass 
+    
     plt.savefig(f"result/{title}.png")
 
 
@@ -173,22 +172,21 @@ if __name__ =="__main__" :
     dataset = parser.parse_args()
 
     # Synthetic
-    n_iter = 100
+    n = 100
     trials = 100
     noise_limit = 10 
     thousands = defaultdict(list)
     med = defaultdict(list)
-    success = defaultdict(int)
+    
     success_rate = defaultdict(list)
     save = dict()
 
     # Implement Experiments : Focal length by the number of line segment 
     if dataset.dataset == "syn":
         if dataset.iv == "num":
-            for i in tqdm(range(2,n_iter)):
+            for i in tqdm(range(2,n)):
                 # To evaluate Properly, Randomness derived from the algorithms need be eliminated => Evaluate by median value of a lot of trials
-
-                
+                success = defaultdict(int)
                 for trial in range(trials): 
                     
                     a, b = create_synthetic_data(n = i ,l = config["l"])
@@ -206,7 +204,7 @@ if __name__ =="__main__" :
 
                     # Store success rate 
                 for m in methods:
-                    success_rate[m].append(success[m]/100) 
+                    success_rate[m].append(success[m]/trials) 
 
 
                 # After 100 trials, Get median values 
@@ -220,41 +218,71 @@ if __name__ =="__main__" :
                 
 
             # Show Result
-            visualize_result(np.arange(2,n_iter), med, "Accuracy")
-            visualize_result(np.arange(2,n_iter), success_rate, "Success_Rate")
+            visualize_result(np.arange(2,n), med, "Accuracy")
+            #visualize_result(np.arange(2,n), success_rate, "Success_Rate")
     
-                            
+                        
       
     # Implement Experiments :  Focal length by Noise level(std of normal distribution)                
         elif dataset.iv == "noise":
-            for i in tqdm(range(0,noise_limit)):
-                for trial in range(trials):                    
-                    a, b = create_synthetic_data(n = 100 ,noise = i ,l = config["l"])
-                    result = do(a,b)
-                    methods = result.keys()
+            methods=["IQR",
+        "RANSAC_IQR",
+        "RANSAC_IQR_2",
+        "Vanilla model",
+        "ZSCORE",
+        "RANSAC_ZSCORE",
+        "RANSAC_ZSCORE_2"]
+            for i in tqdm(range(1, noise_limit)):
+                success = defaultdict(int)
+                pool = multiprocessing.Pool(processes=cpu_count()-1) # 병렬 처리할 프로세스 수를 지정하세요
 
-                    for m in methods:
-                        if result[m] !="nan":
-                            thousands[m].append(result[m]["f"])
+                results = []
+                for trial in range(trials):
+                    a, b = create_synthetic_data(n=50, l=config["l"])
+                    results.append(pool.apply_async(do, (a, b)))
 
-                    # After 1000 trials, Get median values 
+                for result in results:
+                    r = result.get()
                     for m in methods:
-                        med[m].append(float(get_median(thousands[m])))
+                        if r[m] != "nan":
+                            relative_err = 100 * (r[m]['f'] - config["cam_f"]) / config["cam_f"]
+                            relative_err = abs(relative_err)
+                            thousands[m].append(relative_err)
+
+                            if relative_err < 10:
+                                success[m] += 1
+
+                pool.close()
+                pool.join()
+                # After 100 trials, Get median values 
+            for m in methods:
+                med[m].append(float(get_median(thousands[m])))
+            
+            save["median"] = med 
+            with open("exp_noise_result.json","w") as f:
+                json.dump(save,f)
+                
+
             # Show Result
+            visualize_result(np.arange(2,noise_limit), med, "Noise_Accuracy")
+
+           
 
 
                     
                 
 
     elif dataset.dataset == "vid":        
-        with open('line_segment_leftside.json','r') as f: 
+        with open('line_segment_center.json','r') as f: 
             from_file = json.load(f)
             a = from_file['a']
             b = from_file['b']
             config["cam_w"] = from_file['cam_w']
             config["cam_h"] = from_file['cam_h']
         result = do(a,b)
-        pprint(result)
+        with open("mirae_center.json","w") as f:
+                json.dump(result,f)
+        
 
     elif dataset.dataset == "public":
         pass 
