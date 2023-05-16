@@ -28,9 +28,9 @@ Codes in this repo can be classified in 3 categories
       - output: *calib_result_chs.json*
     - from_pedestrian.py
       - Used mediapipe.
-      - can get Head point and Bottom point [in image plane (u,v)]
+      - can get head point and bottom point [in image plane (u,v)]
       - output 
-         : *line_segment.json* , *line_segment_center.json*, *line_segment_leftside.json*
+         : *line_segment.json*, *line_segment_center.json*, *line_segment_leftside.json*
     - take_picorvid.py
       - Records Video 
       - output : * *.mp4*
@@ -41,7 +41,7 @@ Codes in this repo can be classified in 3 categories
    - save graphs of accuracy
    - multiprocessing required bc many iteration for smoothing needed
    - DONE : synthetic data
-   - TODO : video , public dataset data
+   - TODO : video, public dataset data
    - output : exp_result.json
  - viz_result.py 
    - auxilary file for result visualization file Just in case 
