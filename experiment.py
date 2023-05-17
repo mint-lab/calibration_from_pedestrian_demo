@@ -172,8 +172,8 @@ if __name__ =="__main__" :
     dataset = parser.parse_args()
 
     # Synthetic
-    n = 100
-    trials = 100
+    n = 10
+    trials = 10
     noise_limit = 10 
     thousands = defaultdict(list)
     med = defaultdict(list)
@@ -213,7 +213,7 @@ if __name__ =="__main__" :
             
             save["median"] = med 
             save["success_rate"] = success_rate
-            with open("exp_result.json","w") as f:
+            with open("metadata/exp_result_tmp.json","w") as f:
                 json.dump(save,f)
                 
 
@@ -259,7 +259,7 @@ if __name__ =="__main__" :
                 med[m].append(float(get_median(thousands[m])))
             
             save["median"] = med 
-            with open("exp_noise_result.json","w") as f:
+            with open("metadata/exp_noise_result_tmp.json","w") as f:
                 json.dump(save,f)
                 
 
