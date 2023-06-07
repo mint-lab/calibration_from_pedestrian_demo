@@ -9,9 +9,15 @@ select_images = True
 
 capture = cv2.VideoCapture(web_cam)
 capture.set(cv2.CAP_PROP_AUTOFOCUS,0)
+capture.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
+capture.set(cv2.CAP_PROP_FRAME_HEIGHT,720)
+
 
 images = []
+"""
+chessboard for getting Groundtruth of calibration 
 
+"""
 while capture.isOpened():
     ret1, image = capture.read()
 
@@ -21,9 +27,6 @@ while capture.isOpened():
         if key == 27: break # 'ESC' key: Exit
         elif key == 32:     # 'Space' key: Pause
             ret2, pts = cv2.findChessboardCorners(image, board_pattern, None) # No flags
-            # criteria =  (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
-            # pts = cv2.cornerSubPix(image, pts, (5,5), (-1,-1), criteria=criteria)
-    
             # display = image.clone()
             display = copy.deepcopy(image)
             display = cv2.drawChessboardCorners(display, board_pattern, pts, ret2)
@@ -67,7 +70,7 @@ for _ in images:
 # Calibrate Camera
 K = np.eye(3, 3, dtype=np.float32)
 dist_coeff = np.zeros((4,1))
-# flags = cv2.CALIB_ZERO_TANGENT_DIST |cv2.CALIB_FIX_K3 | cv2.CALIB_FIX_ASPECT_RATIO | cv2.CALIB_FIX_PRINCIPAL_POINT
+flags = cv2.CALIB_FIX_ASPECT_RATIO | cv2.CALIB_FIX_PRINCIPAL_POINT | cv2.CALIB_FIX_FOCAL_LENGTH
 rms, K, dist_coeff, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, (h,w), None, None)
 
 # Report calibration results
@@ -78,7 +81,7 @@ print(f"* Camera matrix (K) = \n{K}")
 print(f"* Distortion coefficient (k1, k2, p1, p2, k3, ...) = {dist_coeff}")
 
 # Save as cam_config.yaml
-file_name = "calib_result_chs.json"
+file_name = "metadata/calib_result_chs.yaml"
 cam_dict = {
     "Intrinsic": K.flatten().tolist(),
     "Distortion": dist_coeff.flatten().tolist(),

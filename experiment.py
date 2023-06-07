@@ -11,16 +11,26 @@ from pprint import pprint
 import multiprocessing
 from multiprocessing import cpu_count
 import argparse
-config ={
-        "cam_f" : 1000, 
-        "l" : 1.,  
-        "h" : 3,   #[m]
-        "cam_pos" : [0, 0, 3],
-        "theta_gt" : np.deg2rad(20+90), 
-        "phi_gt" : np.deg2rad(10),  
-        "cam_w" : 1920, 
-        "cam_h" : 1080
-}
+METADATA = "metadata/"
+CONFIG = METADATA + "config.json"
+LINESEGDATA = METADATA+"line_seg_panoptic.json"
+
+
+def json2params(filepath, 
+              mode:str):
+    with open(filepath,"r") as f: 
+        config = json.load(f)
+        config = config[mode]
+
+        # deg2rad 
+        if "theta_gt" in config.keys():
+            config["theta_gt"] = np.deg2rad(config["theta_gt"])
+        
+        if "phi_gt" in config.keys():
+            config["phi_gt"] = np.deg2rad(config["phi_gt"])
+
+    return config
+
 
 def create_synthetic_data(n = 50, l = 1, noise = 2):
 
@@ -31,11 +41,11 @@ def create_synthetic_data(n = 50, l = 1, noise = 2):
         y = np.random.randint(2,5) #Important to calculate Working distance correctly  
         lines.append(np.array([[x,y,0],
                                [x,y,l]]))
-        
+
     # Projecst line segments
     data = project_n_lines(lines, 
-                           theta_gt = config["theta_gt"],
-                           phi_gt = config["phi_gt"],
+                           theta_gt = np.deg2rad(config["theta_gt"]),
+                           phi_gt = np.deg2rad(config["phi_gt"]),
                            cam_pos = config["cam_pos"],
                            cam_w = config["cam_w"],
                            cam_h = config["cam_h"],
@@ -86,7 +96,7 @@ def get_median(f_list):
 
     return median
 
-def do (a,b):
+def do (a,b,config):
     result = dict()
         # iqr
     iqr = calib_camera_stat(a, b, iqr = True, 
@@ -169,8 +179,10 @@ if __name__ =="__main__" :
 
     parser.add_argument('--dataset','-d',type=str, default='syn', help="What type of dataset when do experiment")
     parser.add_argument('--iv', '-i',type=str,default ="num", help = "Indepenedent Variable: One is number of lines and the other is noise levl")
-    dataset = parser.parse_args()
-
+    parser.add_argument("--file", '-f', type = str)
+    args = parser.parse_args()
+    dataset = args.dataset
+    LINESEGDATA = METADATA + args.file
     # Synthetic
     n = 10
     trials = 10
@@ -182,8 +194,9 @@ if __name__ =="__main__" :
     save = dict()
 
     # Implement Experiments : Focal length by the number of line segment 
-    if dataset.dataset == "syn":
-        if dataset.iv == "num":
+    if dataset == "syn":
+        config = json2params(CONFIG, dataset)
+        if args.iv == "num":
             for i in tqdm(range(2,n)):
                 # To evaluate Properly, Randomness derived from the algorithms need be eliminated => Evaluate by median value of a lot of trials
                 success = defaultdict(int)
@@ -219,19 +232,17 @@ if __name__ =="__main__" :
 
             # Show Result
             visualize_result(np.arange(2,n), med, "Accuracy")
-            #visualize_result(np.arange(2,n), success_rate, "Success_Rate")
-    
-                        
+
       
     # Implement Experiments :  Focal length by Noise level(std of normal distribution)                
-        elif dataset.iv == "noise":
+        elif args.iv == "noise":
             methods=["IQR",
-        "RANSAC_IQR",
-        "RANSAC_IQR_2",
-        "Vanilla model",
-        "ZSCORE",
-        "RANSAC_ZSCORE",
-        "RANSAC_ZSCORE_2"]
+                    "RANSAC_IQR",
+                    "RANSAC_IQR_2",
+                    "Vanilla model",
+                    "ZSCORE",
+                    "RANSAC_ZSCORE",
+                    "RANSAC_ZSCORE_2"]
             for i in tqdm(range(1, noise_limit)):
                 success = defaultdict(int)
                 pool = multiprocessing.Pool(processes=cpu_count()-1) # 병렬 처리할 프로세스 수를 지정하세요
@@ -272,20 +283,72 @@ if __name__ =="__main__" :
                     
                 
 
-    elif dataset.dataset == "vid":        
-        with open('line_segment_center.json','r') as f: 
+    elif dataset == "vid":
+        iter = 1000   
+        f_list = defaultdict(list)
+        config = dict()             
+        with open(LINESEGDATA ,'r') as f: 
             from_file = json.load(f)
-            a = from_file['a']
-            b = from_file['b']
-            config["cam_w"] = from_file['cam_w']
-            config["cam_h"] = from_file['cam_h']
-        result = do(a,b)
-        with open("mirae_center.json","w") as f:
-                json.dump(result,f)
+            a = from_file['a'][:400]
+            b = from_file['b'][:400]
+            
+            config = from_file
+            print(f'{config["cam_w"]} X {config["cam_h"]}')
+        for i in tqdm(range(iter)):
+            
+            result = do(a,b,config)
+            for m in result.keys():
+                try:
+                    f_list[m].append(result[m]["f"])
+                except: breakpoint()
+            
+        with open("metadata/video_result.json","w") as f:
+                json.dump(f_list,f)
         
 
-    elif dataset.dataset == "public":
-        pass 
+    elif dataset == "public":
+        def process_data(x):
+            a, b, config = x 
+            return do(a, b, config)
+            
+        iter = 100  
+        f_list = defaultdict(list)
+        config = dict()             
+        with open(LINESEGDATA ,'r') as f: 
+            from_file = json.load(f)
+            a = from_file['a'][:400]
+            b = from_file['b'][:400]
+          
+            print(f'num of a:{len(a)}')
+            print(f'num of b:{len(b)}')
+            
+            config = from_file
+            print(f'{config["cam_w"]} X {config["cam_h"]}')
+    
+        pool = multiprocessing.Pool(processes=cpu_count()-1)
+        results = []
+
+        for i in tqdm(range(iter)):
+            args = (a, b, config)
+            result = pool.apply_async(do, args).get()
+        
+            for m in result.keys():
+                try:
+                    f_list[m].append(result[m]["f"])
+                except: None
+
+        pool.close()
+        pool.join()
+        
+        #tqdm library can effects the speed of iteration code
+        for m in f_list.keys():
+            print(f'{m}: {get_median(f_list[m])}')
+
+        with open("metadata/public_result.json","w") as f:
+                json.dump(f_list,f)
+        
+        
+    
 
 
 

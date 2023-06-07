@@ -12,7 +12,8 @@ pose = mp_pose.Pose()
 
 #Read Videoo 
 path ='/home/chahnoseo/video_for_exp'
-filename = "data_miraehall_center.mp4"
+filename = "data_panoptic_hd_00_00.mp4"
+
 filePath = os.path.join(path, filename)
 cap = cv2.VideoCapture(filePath)
 
@@ -21,6 +22,8 @@ if os.path.isfile(filePath):
 else:
     print("The video file doesn't exists")
 
+
+#Read resolution of video 
 cam_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 cam_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))	
 
@@ -65,6 +68,7 @@ while cap.isOpened():
 
     head_list.append(head.tolist())
     bottom_list.append(bottom.tolist())
+
     # 보기 편하게 이미지를 좌우 반전합니다.
     cv2.imshow('mediapipe results',image)
 
@@ -72,15 +76,12 @@ while cap.isOpened():
         break
 
     
-
-# Output 
-# 1. cam_w, cam_h
-# 2. pixel point of head and bottom point of line segment 
-
 if "center" in filename:
-    json_name = "line_segment_center.json"
+    json_name = "metadaline_segment_center.json"
 elif "leftside" in filename:
-    json_name = "line_segment_leftside.json"
+    json_name = "metadata/line_segment_leftside.json"
+elif "panoptic" in filename:
+    json_name = "metadata/line_seg_panoptic.json"
     
 with open(json_name,'w') as f:
     result = dict()
@@ -88,6 +89,7 @@ with open(json_name,'w') as f:
     result['cam_h'] = cam_h
     result['a'] = bottom_list
     result['b'] = head_list
+    result['l'] = 0.5
     
     json.dump(result,f,indent=4)
 

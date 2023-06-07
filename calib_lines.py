@@ -618,19 +618,10 @@ if __name__ == "__main__":
         p_lines.append(x.squeeze(1))
 
     p_lines = gaussian_noise(p_lines, noise_mean, noise_std)
-    ### Function for implement papers
     
-    #visualize data
-    # plt.figure()
-    # for x in p_lines:
-    #     plt.plot(x[:,0], x[:,1]) 
-    # plt.xlim([0,cam_w])
-    # plt.ylim([cam_h,0])
-    # plt.legend()
-    # plt.show()
-    # #bottom point a  
+    # Bottom point a 
     a =[aa[0] for aa in p_lines]
-    #head point b 
+    # Head point b 
     b =[bb[1] for bb in p_lines]
    
     # calibration Result 
@@ -647,6 +638,7 @@ if __name__ == "__main__":
 
     lm,mu = viz[:n,np.newaxis], viz [n:,np.newaxis]
     lm_mu = lm/mu
+   
     # Visualize Outliers
     x = outlier_iqr(lm_mu)
     plt.scatter(np.arange(n),lm_mu)
