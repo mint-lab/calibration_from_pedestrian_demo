@@ -179,7 +179,7 @@ if __name__ =="__main__" :
 
     parser.add_argument('--dataset','-d',type=str, default='syn', help="What type of dataset when do experiment")
     parser.add_argument('--iv', '-i',type=str,default ="num", help = "Indepenedent Variable: One is number of lines and the other is noise levl")
-    parser.add_argument("--file", '-f', type = str)
+    parser.add_argument("--file", '-f', type = str,default=" ")
     args = parser.parse_args()
     dataset = args.dataset
     LINESEGDATA = METADATA + args.file
@@ -187,7 +187,7 @@ if __name__ =="__main__" :
     n = 10
     trials = 10
     noise_limit = 10 
-    thousands = defaultdict(list)
+    trial_records = defaultdict(list)
     med = defaultdict(list)
     
     success_rate = defaultdict(list)
@@ -203,29 +203,25 @@ if __name__ =="__main__" :
                 for trial in range(trials): 
                     
                     a, b = create_synthetic_data(n = i ,l = config["l"])
-                    result = do(a,b)
+                    result = do(a, b, config)
                     methods = result.keys()
                     
                     for m in methods:
                         if result[m] !="nan":
-                            relative_err = 100*(result[m]['f']-config["cam_f"])/config["cam_f"]
-                            relative_err = abs(relative_err)
-                            thousands[m].append(relative_err)
-
-                            if abs(relative_err) < 10: 
-                                success[m]+=1
-
-                    # Store success rate 
-                for m in methods:
-                    success_rate[m].append(success[m]/trials) 
+                            f_err = abs(100*(result[m]['f']-config["cam_f"])/config["cam_f"])
+                            theta_err = abs(100*(result[m]['theta']-config["theta_gt"])/config["theta_gt"])
+                            phi_err = abs(100*(result[m]['phi']-config["phi_gt"])/config["phi_gt"])
+                            h_err = abs(100*(result[m]['height']-config["h_gt"])/config["h_gt"])
+                            
+                            # TODO
+                            # How to record this multiple variables in efficient?
 
 
                 # After 100 trials, Get median values 
                 for m in methods:
-                    med[m].append(float(get_median(thousands[m])))
+                    med[m].append(float(get_median(trial_records[m])))
             
             save["median"] = med 
-            save["success_rate"] = success_rate
             with open("metadata/exp_result_tmp.json","w") as f:
                 json.dump(save,f)
                 
@@ -258,7 +254,7 @@ if __name__ =="__main__" :
                         if r[m] != "nan":
                             relative_err = 100 * (r[m]['f'] - config["cam_f"]) / config["cam_f"]
                             relative_err = abs(relative_err)
-                            thousands[m].append(relative_err)
+                            trial_records[m].append(relative_err)
 
                             if relative_err < 10:
                                 success[m] += 1
@@ -267,7 +263,7 @@ if __name__ =="__main__" :
                 pool.join()
                 # After 100 trials, Get median values 
             for m in methods:
-                med[m].append(float(get_median(thousands[m])))
+                med[m].append(float(get_median(trial_records[m])))
             
             save["median"] = med 
             with open("metadata/exp_noise_result_tmp.json","w") as f:
@@ -284,23 +280,37 @@ if __name__ =="__main__" :
                 
 
     elif dataset == "vid":
-        iter = 1000   
+        iter = 100
         f_list = defaultdict(list)
         config = dict()             
         with open(LINESEGDATA ,'r') as f: 
             from_file = json.load(f)
             a = from_file['a'][:400]
             b = from_file['b'][:400]
-            
-            config = from_file
+            pprint(len(a))
+            config = from_file   
+            # temporary
+            config["l"] = 0.5         
             print(f'{config["cam_w"]} X {config["cam_h"]}')
+
+        pool = multiprocessing.Pool(processes=cpu_count()-1)
+        results = []
+
         for i in tqdm(range(iter)):
-            
-            result = do(a,b,config)
+            args = (a, b, config)
+            result = pool.apply_async(do, args).get()
+        
             for m in result.keys():
                 try:
                     f_list[m].append(result[m]["f"])
-                except: breakpoint()
+                except: None
+
+        pool.close()
+        pool.join()
+        
+        #tqdm library can effects the speed of iteration code
+        for m in f_list.keys():
+            print(f'{m}: {get_median(f_list[m])}')
             
         with open("metadata/video_result.json","w") as f:
                 json.dump(f_list,f)
