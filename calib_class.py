@@ -18,7 +18,7 @@ class Calibrator:
         self.line_height = config["l"]
     
     def get_M(self):
-        M = np.zeros((3*(self.n-1), 2*self.n), dtype=a.dtype)
+        M = np.zeros((3*(self.n-1), 2*self.n))
         for i in range(1, self.n):
             s, e = (3*(i-1), 3*i)
             M[s:e, 0] = -self.a[0]
@@ -43,12 +43,14 @@ class Calibrator:
         return self.d
     
     def get_f(self): 
-        f_n = sum([(ci[0]*di[0] + ci[1]*di[1]) * ci[2]*di[2] for ci, di in zip(c[1:], d[1:])])
-        f_d = sum([(ci[2]*di[2])**2 for ci, di in zip(c[1:], d[1:])])
+        c_arr = np.array(self.c[1:])
+        d_arr = np.array(self.d[1:])
+        f_n = np.sum((c_arr[:,0]*d_arr[:,0] + c_arr[:,1]*d_arr[:,1]) * c_arr[:,2] * d_arr[:,2])
+        f_d = np.sum((c_arr[:,2]*d_arr[:,2])**2)
         sqrt = -f_n / (f_d + self.eps) 
         self.f = np.sqrt(sqrt)
         return self.f
-    
+
     #Closed form of estimated r3
     def get_r3(self):
         # Calculate intrinsic matrix K 
@@ -88,13 +90,10 @@ class Calibrator:
         self.r3 = Vh[:][-1]
         return self.r3 
 
-    
-
-        
-
     def get_theta(self):
         self.theta = np.arccos(self.r3[2])
         return self.theta
+
     def get_phi(self):
         self.phi = np.arctan(-self.r3[0]/self.r3[1])
         return self.phi
@@ -136,7 +135,7 @@ class Calibrator:
         height = np.sum(p_3+q_3)/(2*self.n) + self.l/2 
         
         #Scaling to get absolute size 
-        height = height*(self.line_heigth/self.l)
+        height = height*(self.line_height/self.l)
     
         #Ignore that positive or negative 
         height = abs(height)
@@ -153,5 +152,52 @@ class Calibrator:
         result["height"] = self.height
 
         return result 
+        
+class Calbirator_twolines(Calibrator):
+    def __init__(self, a, b,
+                 iqr = True, 
+                 r_iter = 100,
+                 trsh = 3,
+                **config):
+        assert len(a) == len(b) and len(a) > 0
+        super().__init__(a, b, **config)
+        self.iqr = iqr 
+        self.ransac_trial = r_iter
+        self.ransac_tresh = trsh
+    
+    def detect_outlier(self):
+        lm_mu = self.lm / self.mu
+        if self.iqr:
+            outlier_index =outlier_iqr(lm_mu)
+        else:
+            outlier_index =outlier_zscore(lm_mu)
+        
+        # make mask to filter outlier index 
+        mask = np.ones(self.n, dtype=bool)
+        mask[outlier_index] = False
+        
+        # filter outlier 
+
+        self.lm, self.mu, self.a, self.b = self.lm[mask], self.mu[mask], self.a[mask], self.b[mask]
+
+    def ransac(self): 
+        best_score = -1 
+        # Select two points randomly
+        indices = np.random.choice(n, 2, replace=False)
+        pts = [[self.lm[i], self.mu[i]] for i in indices]
+
+        # Make a line 
+        (x1, y1), (x2, y2) = pts
+        slope =  (y2 - y1) / (x2 - x1)
+        y_int =  y1 - slope * x1
+        line = np.array([-slope,1,-y_int])
+        
+        err = np.fabs(line[0] * self.lm + line[1] * self.mu + line[2])
+        score = err.sum()
+        if best_score < score: 
+            best_score = score 
+            best_pts = pts
+            best_idx = indices
+
         
 
