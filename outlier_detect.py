@@ -21,5 +21,5 @@ def outlier_zscore(data):
     m = np.mean(data)
     s = np.std(data)
     z = (data-m)/ s 
-    outlier_index,_= np.where(z > 3)
+    outlier_index,_= np.where(np.fabs(z) > 3)
     return outlier_index

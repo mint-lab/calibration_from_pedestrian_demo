@@ -65,6 +65,7 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     kinv_cs = np.zeros((len(c), 3, 1))
     #Update kinv_cs 
     kinv_cs = np.array([(kinv@cc) for cc in c]) # N * (3x1) 
+    
     #Transform 3*1 vector to 3*3 matrix which is equivalnt to cross product  
     crs_kinv_cs =[]
     

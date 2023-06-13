@@ -2,6 +2,7 @@ from pprint import pprint
 import argparse
 import json 
 import numpy as np 
+import numpy as np 
 import matplotlib.pyplot as plt 
 
 
@@ -15,25 +16,31 @@ def visualize_result(x_value:np.array,
     "ZSCORE",
     "RANSAC_ZSCORE",
     "RANSAC_ZSCORE_2"]
+
+    params = ["f",
+              "theta",
+              "phi",
+              "height"]
    
     plt.title(title+" of models")
     plt.figure()
-    for method in methods:
-        if method == "ZSCORE":
-            plt.plot(x_value, y_value[method],linewidth=4,label = method )
-        else:
-            plt.plot(x_value, y_value[method], label = method)
-    
-        plt.legend()
-        plt.ylim([0,100])
-    pprint(y_value["ZSCORE"])
+
+    for i, param in enumerate(params):
+        plt.subplot(int(len(params)/2)+1, int(len(params)/2),i+1)
+        for _ , method in enumerate(methods):
+            plt.plot(x_value, y_value[method][param], label = method)
+            if i == 0:
+                plt.legend(fontsize = 7, bbox_to_anchor = (1,-1.5))
+            else: pass 
+            plt.ylim([0,100])
+            plt.ylabel(f"accuarcy of {param}")
     plt.savefig(f"result/{title}1.png")
 
 
 if __name__ == "__main__":
-    with open("exp_noise_result.json",'r') as f:
+    with open("metadata/exp_result_tmp.json",'r') as f:
         x = json.load(f)
-        ret = x["median"]
-       
-    visualize_result(np.arange(2,100),ret, "Accuracy")
+        x = x["median"]
+    
+    visualize_result(np.arange(2,400),x,"Synthetic data experiment")
     
