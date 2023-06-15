@@ -11,13 +11,16 @@ from pprint import pprint
 import multiprocessing
 from multiprocessing import cpu_count
 import argparse
+import warnings
+import os 
 METADATA = "metadata/"
-CONFIG = METADATA + "config.json"
+CONFIG = METADATA + "calib_synthetic.json"
 LINESEGDATA = METADATA+"line_seg_panoptic.json"
 
 
 def json2params(filepath, 
-              mode:str):
+              mode :str):
+    
     with open(filepath,"r") as f: 
         config = json.load(f)
         config = config[mode]
@@ -44,12 +47,12 @@ def create_synthetic_data(n = 50, l = 1, noise = 2):
 
     # Projecst line segments
     data = project_n_lines(lines, 
-                           theta_gt = config["theta"],
-                           phi_gt = config["phi"],
+                           theta = config["theta"],
+                           phi = config["phi"],
                            cam_pos = config["cam_pos"],
                            cam_w = config["cam_w"],
                            cam_h = config["cam_h"],
-                           cam_f = config["f"])
+                           f = config["f"])
 
     # Put noises in it 
     data = gaussian_noise(data, 0, noise)
@@ -69,7 +72,7 @@ def project_n_lines(lines:list, **config):
 
     tvec_gt = -R_gt @ config["cam_pos"]
 
-    K =np.array([[config["cam_f"], 0., config["cam_w"]/2], [0., config["cam_f"], config["cam_h"]/2], [0., 0., 1.]]) 
+    K =np.array([[config["f"], 0., config["cam_w"]/2], [0., config["f"], config["cam_h"]/2], [0., 0., 1.]]) 
     for line in lines: #cv.projectpoints
         x,_= cv2.projectPoints(line, r_gt.as_rotvec(), tvec_gt, K, np.zeros(4))
         p_lines.append(x.squeeze(1))
@@ -80,7 +83,7 @@ def gaussian_noise(x, mu, std):
     x_noisy = []
     for i in range(len(x)):
         noise = mu + std*np.random.randn(len(x[0])) 
-        x_n = x[i]+noise
+        x_n = x[i] + noise
         x_noisy.append(x_n)
     x_noisy = [x[i] + np.random.normal(mu,std,size=x[0].shape) for i in range(len(x))]
     return x_noisy
@@ -153,9 +156,13 @@ def calibrate(a,b,config):
 
 if __name__ =="__main__" : 
 
-    # get Dataset (1. Synthetic | 2. recorded video by my own | 3. Public datasets)
+    # Ignore warings in numpy 
+    warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
+    warnings.filterwarnings('ignore', category=RuntimeWarning)
+    # Get Dataset (1. Synthetic | 2. recorded video by my own | 3. Public datasets)
+    
+    # Experiment options 
     parser = argparse.ArgumentParser()
-
     parser.add_argument('--dataset','-d',type=str, default='syn', help="What type of dataset when do experiment")
     parser.add_argument('--iv', '-i',type=str,default ="num", help = "Indepenedent Variable: One is number of lines and the other is noise levl")
     parser.add_argument("--file", '-f', type = str,default=" ")
@@ -164,8 +171,9 @@ if __name__ =="__main__" :
     LINESEGDATA = METADATA + args.file
     
     # Synthetic
-    n = 400
-    trials = 10
+    n = 100
+    iters = 1000
+    noise_limit = 10 
 
     errors = defaultdict(lambda: defaultdict(list))
     med = defaultdict(lambda: defaultdict(list))
@@ -183,8 +191,8 @@ if __name__ =="__main__" :
         if args.iv == "num":
             for i in tqdm(range(2,n)):
                 # To evaluate Properly, Randomness derived from the algorithms need be eliminated => Evaluate by median value of a lot of trials
-                for trial in range(trials): 
-                    pool = multiprocessing.Pool(processes=cpu_count()-1)
+                for iter in range(iters): 
+                    pool = multiprocessing.Pool(processes=1.5 * cpu_count())
                     a, b = create_synthetic_data(n = i ,l = config["l"])
                     args = (a, b, config)
                     result = pool.apply_async(calibrate, args).get()
@@ -205,10 +213,42 @@ if __name__ =="__main__" :
                     for p in params:
                         med[m][p].append(float(get_median(errors[m][p])))
             
-            
+            save["median"] = med 
+            with open("metadata/exp_result_syn.json","w") as f:
+                json.dump(save,f)
+        
+    if args.iv == "noise":
+            for i in tqdm(range(noise_limit)):
+                # To evaluate Properly, Randomness derived from the algorithms need be eliminated => Evaluate by median value of a lot of trials
+                for iter in range(iters): 
+                    # Multiprocessing code to boost the speed of iteration
+                    pool = multiprocessing.Pool(processes = int(1.5 * cpu_count()))
+
+                    # Create Data along the noise level 
+                    a, b = create_synthetic_data(n = 100, 
+                                                 noise = i, 
+                                                 l = config["l"])
+                    args = (a, b, config)
+                    result = pool.apply_async(calibrate, args).get()
+                    methods = result.keys()
+                    
+                    for method in methods:
+                        if result[method] !="nan":
+                            for param in params:
+                                error = np.abs(100*(result[method][param]-config[param])/config[param])
+                                errors[method][param].append(error)
+                    
+                    pool.close()    
+                    pool.join()
+
+
+                # After 1000 trials, Get median values 
+                for m in methods:
+                    for p in params:
+                        med[m][p].append(float(get_median(errors[m][p])))
             
             save["median"] = med 
-            with open("metadata/exp_result_tmp.json","w") as f:
+            with open("metadata/exp_result_syn.json","w") as f:
                 json.dump(save,f)
 
     elif dataset == "vid":
@@ -248,48 +288,71 @@ if __name__ =="__main__" :
                 json.dump(f_list,f)
 
     elif dataset == "public":
-        def process_data(x):
-            a, b, config = x 
-            return calibrate(a, b, config)
-            
-        iter = 100  
+        import pandas as pd 
+        import os 
+
+        # Load Panoptic line segments
+        CONFIG_LINES = [METADATA + "line_seg_panoptic_" + str(i) +".json"
+                        for i in range(5)]
+       
+        # Experiment setting
+        iter = 1000
         f_list = defaultdict(list)
-        config = dict()             
-        with open(LINESEGDATA ,'r') as f: 
-            from_file = json.load(f)
-            a = from_file['a'][:400]
-            b = from_file['b'][:400]
-          
-            print(f'num of a:{len(a)}')
-            print(f'num of b:{len(b)}')
+        config = dict()  
+        df = pd.DataFrame(columns = CONFIG_LINES)
+   
+        
+        for i, CONFIG_LINE in enumerate(CONFIG_LINES):
+            with open(CONFIG_LINE ,'r') as f: 
+                from_file = json.load(f)
+                a = from_file['a']
+                b = from_file['b']
+                a_np = np.asarray(a)
+                b_np = np.asarray(b)
+                
+                # Choose 100 data Randomly without replacement
+                np.random.seed(717)
+                random_idx = np.random.choice(500, 100, replace = False)
             
-            config = from_file
-            print(f'{config["cam_w"]} X {config["cam_h"]}')
-    
-        pool = multiprocessing.Pool(processes=cpu_count()-1)
-        results = []
+                # Create filter mask
+                filter_size = a_np[...,0]
+                filter_mask = np.zeros_like(filter_size, dtype = bool)
+                filter_mask[random_idx] = True
+                
+                # Filter a and b 
+                a_np = a_np[filter_mask]
+                b_np = b_np[filter_mask]
+                
+                print(f"data proceeding at...{CONFIG_LINE}")
+                print(f'num of a:{len(a_np)}')
+                print(f'num of b:{len(b_np)}')
+                
+                config = from_file
+                print(f'{config["cam_w"]} X {config["cam_h"]}')
+            
+            pool = multiprocessing.Pool(processes = int(1.5 * cpu_count()))
+            results = []
 
-        for i in tqdm(range(iter)):
-            args = (a, b, config)
-            result = pool.apply_async(calibrate, args).get()
+            for i in tqdm(range(iter)): 
+                args = (a_np, b_np, config)
+                result = pool.apply_async(calibrate, args).get()
+            
+                for m in result.keys():
+                    try:
+                        f_list[m].append(result[m]["f"])
+                    except: None
+          
+            pool.close()
+            pool.join()
+            
+            
+            if i == 0:
+                df.index = f_list.keys()
+                # Allocate using row and col
+            for method in f_list.keys():
+                df.loc[method, CONFIG_LINE] = get_median(f_list[method])
+    df.to_csv("result/panoptic.csv")        
         
-            for m in result.keys():
-                try:
-                    f_list[m].append(result[m]["f"])
-                except: None
-
-        pool.close()
-        pool.join()
-        
-        #tqdm library can effects the speed of iteration code
-        for m in f_list.keys():
-            print(f'{m}: {get_median(f_list[m])}')
-
-        with open("metadata/public_result.json","w") as f:
-                json.dump(f_list,f)
-        
-        
-    
 
 
 
