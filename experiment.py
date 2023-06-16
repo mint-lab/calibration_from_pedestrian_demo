@@ -217,7 +217,7 @@ if __name__ =="__main__" :
             with open("metadata/exp_result_syn.json","w") as f:
                 json.dump(save,f)
                 print(f"Synthetic data 1: independent variable is number of line segemnts"
-                      f"Experiment completed !")
+                      f"....Experiment completed !")
         
         elif args.iv == "noise":
             for i in tqdm(range(noise_limit)):
