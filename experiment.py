@@ -171,8 +171,8 @@ if __name__ =="__main__" :
     LINESEGDATA = METADATA + args.file
     
     # Synthetic
-    n = 100
-    iters = 1000
+    n = 10
+    iters = 10
     noise_limit = 10 
 
     errors = defaultdict(lambda: defaultdict(list))
@@ -191,8 +191,8 @@ if __name__ =="__main__" :
         if args.iv == "num":
             for i in tqdm(range(2,n)):
                 # To evaluate Properly, Randomness derived from the algorithms need be eliminated => Evaluate by median value of a lot of trials
-                for iter in range(iters): 
-                    pool = multiprocessing.Pool(processes=1.5 * cpu_count())
+                for iter in tqdm(range(iters)): 
+                    pool = multiprocessing.Pool(processes = int(2 * cpu_count()))
                     a, b = create_synthetic_data(n = i ,l = config["l"])
                     args = (a, b, config)
                     result = pool.apply_async(calibrate, args).get()
@@ -216,13 +216,15 @@ if __name__ =="__main__" :
             save["median"] = med 
             with open("metadata/exp_result_syn.json","w") as f:
                 json.dump(save,f)
+                print(f"Synthetic data 1: independent variable is number of line segemnts"
+                      f"Experiment completed !")
         
-    if args.iv == "noise":
+        elif args.iv == "noise":
             for i in tqdm(range(noise_limit)):
                 # To evaluate Properly, Randomness derived from the algorithms need be eliminated => Evaluate by median value of a lot of trials
-                for iter in range(iters): 
+                for iter in tqdm(range(iters)): 
                     # Multiprocessing code to boost the speed of iteration
-                    pool = multiprocessing.Pool(processes = int(1.5 * cpu_count()))
+                    pool = multiprocessing.Pool(processes = 16)
 
                     # Create Data along the noise level 
                     a, b = create_synthetic_data(n = 100, 
@@ -248,7 +250,7 @@ if __name__ =="__main__" :
                         med[m][p].append(float(get_median(errors[m][p])))
             
             save["median"] = med 
-            with open("metadata/exp_result_syn.json","w") as f:
+            with open("metadata/exp_result_syn_noise.json","w") as f:
                 json.dump(save,f)
 
     elif dataset == "vid":
@@ -351,7 +353,7 @@ if __name__ =="__main__" :
                 # Allocate using row and col
             for method in f_list.keys():
                 df.loc[method, CONFIG_LINE] = get_median(f_list[method])
-    df.to_csv("result/panoptic.csv")        
+            df.to_csv("result/panoptic.csv")        
         
 
 
