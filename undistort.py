@@ -20,10 +20,10 @@ def dist(x,y):
     L2 = euclidean(x,y)
     return L2 
 
-def get_reprojection_error(a:np.ndarray,
-                       A:np.ndarray,
-                       b:np.ndarray,
-                       B:np.ndarray,
+def get_reprojection_error(a_s:np.ndarray,
+                       As:np.ndarray,
+                       b_s:np.ndarray,
+                       Bs:np.ndarray,
                        params):
     """
     Obj:
@@ -35,18 +35,45 @@ def get_reprojection_error(a:np.ndarray,
         b is observed head points in image plane
         A is 3D points of foot
         B is 3D points of head 
-        params included K(focal length),R,T 
+        params is np.array([f,theta,phi,h])
         
     
     return:
-        f,R,t
-    
+        errors of each reprojection of line segments
     """
-    K, R, T = params 
-    A_reprojected = K @ (R @ A + T)
-    B_reprojected = K @ (R @ B + T)
+    
+    f = params[0]
+    theta = params[1]
+    phi = params[2]
+    h = params[3]
+    # Convert params to K R T 
+    K =np.array([[f, 0., 0.], 
+                 [0.,f,  0.], 
+                 [0., 0., 1.]]) 
+    Rx = np.array([[1., 0, 0], 
+                   [0, np.cos(theta), -np.sin(theta)], 
+                   [0, np.sin(theta), np.cos(theta)]])
+    Rz = np.array([[np.cos(phi), -np.sin(phi), 0], 
+                   [np.sin(phi), np.cos(phi), 0], 
+                   [0, 0, 1.]])
+    
+    R =  Rz @ Rx 
+    T = -h * R[:,2]
 
-    errors = [dist(a_i,A_i)^2 + dist(b_i,B_i)^2 for a_i, A_i, b_i, B_i in zip(a, A_reprojected, b, B_reprojected)]
+    A_reps, B_reps = [], [] 
+    for A, B in zip(As, Bs):
+        A_rep = K @ (R @ A + T)
+        B_rep = K @ (R @ B + T)
+        
+        A_rep /= A_rep[2]
+        A_rep = A_rep[:2]
+        B_rep /= B_rep[2]
+        B_rep = B_rep[:2]
+        A_reps.append(A_rep)
+        B_reps.append(B_rep)
+
+    errors = sum([dist(a,A_rep)**2 + dist(b,B_rep)**2 for a, A_rep, b, B_rep in zip(a_s, A_reps, b_s, B_reps)])
+    
     return errors
 
 def get_leastsq(params,func):
@@ -54,7 +81,7 @@ def get_leastsq(params,func):
     # func: will be 
 
     # get result of least square, res will be f, R, t 
-    initial_guess = params
+    initial_guess = params.flatten()
     result = least_squares(func, initial_guess)
     res = result.x
 
@@ -109,21 +136,6 @@ def project_n_lines(Xfs, Xhs, noise, **config):
     xfs, xhs = np.array(xfs), np.array(xhs)
     return xfs, xhs 
 
-def params2KRT(f,h,theta, phi):
-
-    K =np.array([[f, 0., 0.], 
-                 [0.,f,  0.], 
-                 [0., 0., 1.]]) 
-    Rx = np.array([[1., 0, 0], 
-                   [0, np.cos(theta), -np.sin(theta)], 
-                   [0, np.sin(theta), np.cos(theta)]])
-    Rz = np.array([[np.cos(phi), -np.sin(phi), 0], 
-                   [np.sin(phi), np.cos(phi), 0], 
-                   [0, 0, 1.]])
-    
-    R =  Rz @ Rx 
-    T = -h * R[:,2]
-    return K, R, T
     
 
 if __name__ == "__main__":
@@ -147,12 +159,19 @@ if __name__ == "__main__":
     calib_result = calibrate(xfs, xhs, config)
 
     # choose the results 
-    calibration_method = "IQR"
+    calibration_method = "RANSAC_IQR_2"
     f = calib_result[calibration_method]['f']
     theta = calib_result[calibration_method]['theta']
     phi = calib_result[calibration_method]['phi']
     h = calib_result[calibration_method]['height']
 
-    # convert params to K,R,T 
-    K,R,T = params2KRT(f, h, theta, phi)
+    # convert params to K,R,T
+    params = np.array([f,theta,phi,h])
+
+    # Reprojection error 
+    func = get_reprojection_error(xfs, Xfs, xhs, Xhs, params)
+    params_opt, RMS = get_leastsq(params, func)
+
+    pprint(params_opt)
+    pprint(f"RMS error: {RMS}")
 
