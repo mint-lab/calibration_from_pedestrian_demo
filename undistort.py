@@ -2,9 +2,19 @@ import numpy as np
 from scipy.spatial.distance import euclidean
 from scipy.spatial.transform import Rotation
 from scipy.optimize import least_squares
-from calib_lines import calib_camera_vanilla, calib_camera_ransac
-from experiment import json2params, project_n_lines, create_synthetic_data
+from experiment import json2params, project_n_lines, calibrate
 import cv2 
+from pprint import pprint
+
+def gaussian_noise(x, mu, std):
+    x_noisy = []
+    for i in range(len(x)):
+        noise = mu + std*np.random.randn(len(x[0])) 
+        x_n = x[i] + noise
+        x_noisy.append(x_n)
+    x_noisy = [x[i] + np.random.normal(mu,std,size=x[0].shape) for i in range(len(x))]
+    return x_noisy
+
 
 def dist(x,y):
     L2 = euclidean(x,y)
@@ -25,19 +35,14 @@ def get_reprojection_error(a:np.ndarray,
         b is observed head points in image plane
         A is 3D points of foot
         B is 3D points of head 
-        params included K(focal length),theta,phi,heigth
+        params included K(focal length),R,T 
         
     
     return:
         f,R,t
     
     """
-    f, R, T = params 
-    
-    K = np.array([f,0,0],
-                 [0,f,0],
-                 [0,0,1])
-    
+    K, R, T = params 
     A_reprojected = K @ (R @ A + T)
     B_reprojected = K @ (R @ B + T)
 
@@ -72,7 +77,7 @@ def create_3D_data(n, l):
     return Xfs, Xhs
 
 
-def project_n_lines(Xfs, Xhs, **config):
+def project_n_lines(Xfs, Xhs, noise, **config):
     xfs, xhs = [], [] 
 
     # Camera paramters 
@@ -92,14 +97,34 @@ def project_n_lines(Xfs, Xhs, **config):
     # Project 3D points 
     for Xh, Xf in zip(Xhs, Xfs): 
         xh, _ = cv2.projectPoints(Xh, r_gt.as_rotvec(), tvec_gt, K, np.zeros(4))
-        xhs.append(xh.squeeze(1))
+        xhs.append(xh.squeeze())
 
         xf, _ = cv2.projectPoints(Xf, r_gt.as_rotvec(), tvec_gt, K, np.zeros(4))
-        xfs.append(xf.squeeze(1))
-    
+        xfs.append(xf.squeeze())
+
+    # Put the noises in image plane
+    xfs = gaussian_noise(xfs, 0, noise)
+    xhs = gaussian_noise(xhs, 0, noise)
+
     xfs, xhs = np.array(xfs), np.array(xhs)
     return xfs, xhs 
 
+def params2KRT(f,h,theta, phi):
+
+    K =np.array([[f, 0., 0.], 
+                 [0.,f,  0.], 
+                 [0., 0., 1.]]) 
+    Rx = np.array([[1., 0, 0], 
+                   [0, np.cos(theta), -np.sin(theta)], 
+                   [0, np.sin(theta), np.cos(theta)]])
+    Rz = np.array([[np.cos(phi), -np.sin(phi), 0], 
+                   [np.sin(phi), np.cos(phi), 0], 
+                   [0, 0, 1.]])
+    
+    R =  Rz @ Rx 
+    T = -h * R[:,2]
+    return K, R, T
+    
 
 if __name__ == "__main__":
 
@@ -107,16 +132,27 @@ if __name__ == "__main__":
     CONFIG = METADATA + "calib_synthetic.json"
     LINESEGDATA = METADATA+"line_seg_panoptic.json"
 
-    # create data 
+    # Create data 
     config = json2params(CONFIG,"syn")
     Xfs, Xhs = create_3D_data(n = 10, l = config["l"])
-    xfs, xhs = project_n_lines(Xfs, Xhs,
+    xfs, xhs = project_n_lines(Xfs, Xhs, noise=2.0,
                             theta = config["theta"],
                             phi = config["phi"],
                             cam_pos = config["cam_pos"],
                             cam_w = config["cam_w"],
                             cam_h = config["cam_h"],
                             f = config["f"])
-    breakpoint()
-    # 
+
+    # Implement calibration 
+    calib_result = calibrate(xfs, xhs, config)
+
+    # choose the results 
+    calibration_method = "IQR"
+    f = calib_result[calibration_method]['f']
+    theta = calib_result[calibration_method]['theta']
+    phi = calib_result[calibration_method]['phi']
+    h = calib_result[calibration_method]['height']
+
+    # convert params to K,R,T 
+    K,R,T = params2KRT(f, h, theta, phi)
 
