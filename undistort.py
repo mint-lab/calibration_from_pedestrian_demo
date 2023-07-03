@@ -15,68 +15,142 @@ def gaussian_noise(x, mu, std):
     x_noisy = [x[i] + np.random.normal(mu,std,size=x[0].shape) for i in range(len(x))]
     return x_noisy
 
-
-def dist(x,y):
-    L2 = euclidean(x,y)
-    return L2 
-
-def get_reprojection_error(a_s:np.ndarray,
+class ReprojectionError:
+    def __init__(self, a_s:np.ndarray,
                        As:np.ndarray,
                        b_s:np.ndarray,
-                       Bs:np.ndarray,
-                       params):
-    """
-    Obj:
+                       Bs:np.ndarray):
+        """
+        Initialize the ReprojectionError object with the given parameters.
 
-        This method target for optimization of calibration results with estimated camera parameters as initial guesses.
+        Args:
+            a_s: observed foot points in image plane   
+            As: 3D points of foot
+            b_s: observed head points in image plane
+            Bs: 3D points of head
+        """
+        self.a_s = a_s
+        self.As = As
+        self.b_s = b_s
+        self.Bs = Bs
+
+    def __call__(self, params):
+        """
+        Call this object as a function to compute the reprojection error.
+
+        Args:
+            params: Camera parameters, np.array([f,theta,phi,h])
+
+        Returns:
+            errors of each reprojection of line segments
+        """
+        f = params[0]
+        theta = params[1]
+        phi = params[2]
+        h = params[3]
+        
+        # Convert params to K R T 
+        K = np.array([[f, 0., 0.], 
+                      [0.,f,  0.], 
+                      [0., 0., 1.]]) 
+        Rx = np.array([[1., 0, 0], 
+                       [0, np.cos(theta), -np.sin(theta)], 
+                       [0, np.sin(theta), np.cos(theta)]])
+        Rz = np.array([[np.cos(phi), -np.sin(phi), 0], 
+                       [np.sin(phi), np.cos(phi), 0], 
+                       [0, 0, 1.]])
+
+        R =  Rz @ Rx 
+        T = -h * R[:,2]
+
+        A_reps, B_reps = [], [] 
+        for A, B in zip(self.As, self.Bs):
+            A_rep = K @ (R @ A + T)
+            B_rep = K @ (R @ B + T)
+            
+            A_rep /= A_rep[2]
+            A_rep = A_rep[:2]
+            B_rep /= B_rep[2]
+            B_rep = B_rep[:2]
+            A_reps.append(A_rep)
+            B_reps.append(B_rep)
+
+        errors = np.sum([self.dist(a, A_rep)**2 + self.dist(b, B_rep)**2 for a, A_rep, b, B_rep in zip(self.a_s, A_reps, self.b_s, B_reps)])
+
+        return errors
+
+    @staticmethod
+    def dist(x, y):
+        """
+        Compute the Euclidean distance between points x and y.
+
+        Args:
+            x: First point.
+            y: Second point.
+
+        Returns:
+            The Euclidean distance between x and y.
+        """
+        return np.linalg.norm(x-y)
+
+# def get_reprojection_error(a_s:np.ndarray,
+#                        As:np.ndarray,
+#                        b_s:np.ndarray,
+#                        Bs:np.ndarray,
+#                        params):
+#     """
+#     Obj:
+
+#         This method target for optimization of calibration results with estimated camera parameters as initial guesses.
     
-    params: 
-        a is observed foot points in image plane   
-        b is observed head points in image plane
-        A is 3D points of foot
-        B is 3D points of head 
-        params is np.array([f,theta,phi,h])
+#     params: 
+#         a is observed foot points in image plane   
+#         b is observed head points in image plane
+#         A is 3D points of foot
+#         B is 3D points of head 
+#         params is np.array([f,theta,phi,h])
         
     
-    return:
-        errors of each reprojection of line segments
-    """
+#     return:
+#         errors of each reprojection of line segments
+#     """
     
-    f = params[0]
-    theta = params[1]
-    phi = params[2]
-    h = params[3]
-    # Convert params to K R T 
-    K =np.array([[f, 0., 0.], 
-                 [0.,f,  0.], 
-                 [0., 0., 1.]]) 
-    Rx = np.array([[1., 0, 0], 
-                   [0, np.cos(theta), -np.sin(theta)], 
-                   [0, np.sin(theta), np.cos(theta)]])
-    Rz = np.array([[np.cos(phi), -np.sin(phi), 0], 
-                   [np.sin(phi), np.cos(phi), 0], 
-                   [0, 0, 1.]])
+#     f = params[0]
+#     theta = params[1]
+#     phi = params[2]
+#     h = params[3]
     
-    R =  Rz @ Rx 
-    T = -h * R[:,2]
+#     # Convert params to K R T 
+#     K =np.array([[f, 0., 0.], 
+#                  [0.,f,  0.], 
+#                  [0., 0., 1.]]) 
+#     Rx = np.array([[1., 0, 0], 
+#                    [0, np.cos(theta), -np.sin(theta)], 
+#                    [0, np.sin(theta), np.cos(theta)]])
+#     Rz = np.array([[np.cos(phi), -np.sin(phi), 0], 
+#                    [np.sin(phi), np.cos(phi), 0], 
+#                    [0, 0, 1.]])
+    
+#     R =  Rz @ Rx 
+#     T = -h * R[:,2]
 
-    A_reps, B_reps = [], [] 
-    for A, B in zip(As, Bs):
-        A_rep = K @ (R @ A + T)
-        B_rep = K @ (R @ B + T)
+#     A_reps, B_reps = [], [] 
+#     for A, B in zip(As, Bs):
+#         A_rep = K @ (R @ A + T)
+#         B_rep = K @ (R @ B + T)
         
-        A_rep /= A_rep[2]
-        A_rep = A_rep[:2]
-        B_rep /= B_rep[2]
-        B_rep = B_rep[:2]
-        A_reps.append(A_rep)
-        B_reps.append(B_rep)
+#         A_rep /= A_rep[2]
+#         A_rep = A_rep[:2]
+#         B_rep /= B_rep[2]
+#         B_rep = B_rep[:2]
+#         A_reps.append(A_rep)
+#         B_reps.append(B_rep)
 
-    errors = sum([dist(a,A_rep)**2 + dist(b,B_rep)**2 for a, A_rep, b, B_rep in zip(a_s, A_reps, b_s, B_reps)])
+#     errors = np.sum([dist(a, A_rep)**2 + dist(b, B_rep)**2 for a, A_rep, b, B_rep in zip(a_s, A_reps, b_s, B_reps)])
     
-    return errors
+#     return errors
 
-def get_leastsq(params,func):
+def get_leastsq(params, func):
     # params: f,R,T 
     # func: will be 
 
@@ -169,7 +243,7 @@ if __name__ == "__main__":
     params = np.array([f,theta,phi,h])
 
     # Reprojection error 
-    func = get_reprojection_error(xfs, Xfs, xhs, Xhs, params)
+    func = ReprojectionError(xfs, Xfs, xhs, Xhs) 
     params_opt, RMS = get_leastsq(params, func)
 
     pprint(params_opt)

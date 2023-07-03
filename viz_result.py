@@ -39,7 +39,7 @@ def visualize_result(x_value:np.array,
             plt.plot(x_value, y_value[method][param], linestyle = linestyles[j], label = method)
 
             # Configuration of axises
-            plt.xlabel('number of line segments')
+            plt.xlabel('standard devation of noise')
             plt.ylim([0,100])
             plt.ylabel(f"Error of {param}")
             
@@ -52,12 +52,12 @@ def visualize_result(x_value:np.array,
 
     # Save
     plt.savefig(f"result/{title}1.png")
-
+    plt.savefig(f"result/{title}1.pdf")
 
 if __name__ == "__main__":
-    with open("metadata/exp_result_tmp.json",'r') as f:
+    with open("metadata/exp_result_syn_noise.json",'r') as f:
         x = json.load(f)
         x = x["median"]
     
-    visualize_result(np.arange(2,40),x,"Synthetic data experiment")
+    visualize_result(np.arange(10),x,"Synthetic data experiment")
     

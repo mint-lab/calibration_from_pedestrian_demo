@@ -60,7 +60,7 @@ def create_synthetic_data(n = 50, l = 1, noise = 2):
     a = [aa[0] for aa in data]
     b = [bb[1] for bb in data]
 
-    return a , b 
+    return a , b
 
 def project_n_lines(lines:list, **config):
     p_lines= [] 
@@ -103,14 +103,16 @@ def calibrate(a,b,config):
     # iqr + RANSAC
     ran = calib_camera_nlines_ransac(a, b, 
                                     line_height= config["l"],
-                                    r_iter = 200,
+                                    r_iter = 50,
+                                    trsh= 0.0099,
                                     cam_w = config["cam_w"], 
                                     cam_h = config["cam_h"])
     
     # iqr + RANSAC_twolines 
     ran2 = calib_camera_ransac(a, b, 
                                 line_height= config["l"],
-                                r_iter = 200,
+                                r_iter = 50,
+                                trsh= 0.0099,
                                 cam_w = config["cam_w"], 
                                 cam_h = config["cam_h"])
     
@@ -129,7 +131,7 @@ def calibrate(a,b,config):
     ran_z = calib_camera_nlines_ransac(a, b, 
                                         iqr = False,
                                         line_height= config["l"],
-                                        r_iter = 200,
+                                        r_iter = 50,
                                         cam_w = config["cam_w"], 
                                         cam_h = config["cam_h"])
     
@@ -137,7 +139,7 @@ def calibrate(a,b,config):
     ran2_z= calib_camera_ransac(a, b, 
                                 iqr = False,
                                 line_height= config["l"],
-                                r_iter = 200,
+                                r_iter = 50,
                                 cam_w = config["cam_w"], 
                                 cam_h = config["cam_h"])
     
@@ -171,8 +173,8 @@ if __name__ =="__main__" :
     LINESEGDATA = METADATA + args.file
     
     # Synthetic
-    n = 10
-    iters = 10
+    n = 100
+    iters = 1000
     noise_limit = 10 
 
     errors = defaultdict(lambda: defaultdict(list))
@@ -189,10 +191,11 @@ if __name__ =="__main__" :
     if dataset == "syn":
         config = json2params(CONFIG, dataset)
         if args.iv == "num":
+
+            pool = multiprocessing.Pool(processes = int(2 * cpu_count()))
             for i in tqdm(range(2,n)):
                 # To evaluate Properly, Randomness derived from the algorithms need be eliminated => Evaluate by median value of a lot of trials
-                for iter in tqdm(range(iters)): 
-                    pool = multiprocessing.Pool(processes = int(2 * cpu_count()))
+                for iter in tqdm(range(iters),desc="Inner"): 
                     a, b = create_synthetic_data(n = i ,l = config["l"])
                     args = (a, b, config)
                     result = pool.apply_async(calibrate, args).get()
@@ -353,7 +356,7 @@ if __name__ =="__main__" :
                 # Allocate using row and col
             for method in f_list.keys():
                 df.loc[method, CONFIG_LINE] = get_median(f_list[method])
-            df.to_csv("result/panoptic.csv")        
+            df.to_csv("result/panoptic_1.csv")        
         
 
 

@@ -4,10 +4,30 @@ from scipy.linalg import norm
 from scipy.spatial.transform import Rotation
 from numpy import random
 import cv2
+from pprint import pprint
 import matplotlib.pyplot as plt 
 from outlier_detect import outlier_iqr, outlier_zscore
 
 
+
+def calculate_iterations(p = 0.7 , e = 0.3, s = 2):
+    """
+    p: 원하는 정확도
+    e: outlier의 비율
+    s: 모델을 추정하기 위한 무작위로 선택한 데이터 포인트의 수
+    """
+    N = np.log(1 - p) / np.log(1 - (1 - e) ** s)
+    return np.ceil(N)  # 반복 횟수는 항상 올림하여 정수로 표현
+
+def calculate_threshold(residuals, scale_factor=1.4826):
+    """
+    residuals: 모델에서 계산된 잔차
+    scale_factor: 스케일 계수, 표준정규분포를 가정할 경우 1.4826 사용
+    """
+    med = np.median(residuals)
+    mad = np.median(np.abs(residuals - med))
+    threshold = scale_factor * mad
+    return threshold
 
 
 def gaussian_noise(x, mu, std):
@@ -35,14 +55,14 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
         M[s:e, n] = b[0]
         M[s:e, n+i] = -b[i]
     
-    #Method 1) Using SVD
+    # Method 1) Using SVD
     _, _, Vh = np.linalg.svd(M)
     v = Vh[:][-1]
     lm, mu = v[:n, np.newaxis], v[n:, np.newaxis]
     
     #assert (v > 0).all()
       
-    #Calculate 'f' using Equation (24)
+    # Calculate 'f' using Equation (24)
   
     c = mu * b - lm * a
     d = lm * a - lm[0] * a[0]
@@ -56,17 +76,17 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     f = np.sqrt(sqrt)
     k= np.array([[f, 0., 0], [0., f, 0], [0., 0., 1.]]) 
     
-    #Closed form of estimated r3
+    # Closed form of estimated r3
     try:
         kinv = inv(k)
     except np.linalg.LinAlgError:
         return "nan"
-    #Initialize kinv_cs
+    # Initialize kinv_cs
     kinv_cs = np.zeros((len(c), 3, 1))
-    #Update kinv_cs 
+    # Update kinv_cs 
     kinv_cs = np.array([(kinv@cc) for cc in c]) # N * (3x1) 
     
-    #Transform 3*1 vector to 3*3 matrix which is equivalnt to cross product  
+    # Transform 3*1 vector to 3*3 matrix which is equivalnt to cross product  
     crs_kinv_cs =[]
     
     for kinv_c in kinv_cs:
@@ -76,15 +96,15 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
                         [-kinv_c[1],kinv_c[0],0]])
         crs_kinv_cs.append(crossed)
     
-    #Power that matrix 
+    # Power that matrix 
     crs_kinv_cs_2 = np.array([crs_kinv_c @ crs_kinv_c for crs_kinv_c in crs_kinv_cs])
     
-    # sum all N matrices , like A1 + A2 + A3.... 
+    # Sum all N matrices , like A1 + A2 + A3.... 
     A = np.zeros_like(crs_kinv_cs[0])
     for element in crs_kinv_cs_2:
         A = A + element   
 
-    # r3 can be computed as the eigenvector of this formula(A) corresponding to the smallest eigenvalue 
+    # R3 can be computed as the eigenvector of this formula(A) corresponding to the smallest eigenvalue 
     try:
         _,_,Vh = svd(-A)
     except np.linalg.LinAlgError: return "nan"
@@ -96,10 +116,10 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     Rx = np.array([[1., 0, 0], [0, np.cos(theta), -np.sin(theta)], [0, np.sin(theta), np.cos(theta)]])
     Rz = np.array([[np.cos(phi), -np.sin(phi), 0], [np.sin(phi), np.cos(phi), 0], [0, 0, 1.]])
     R = Rz@Rx
-    #Closed form of estimated length of line segment
+    # Closed form of estimated length of line segment
     l = r3.T@sum(kinv_cs)/n
 
-    #Calculate p and q to get a position value 
+    # Calculate p and q to get a position value 
     Q =np.diag([1,1,-1]) 
     pq = []
     for i in range(n):
@@ -112,7 +132,7 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     p = [p[:,0]  for p in pq]
     q = [q[:,1]  for q in pq]
     
-    #Calculate position
+    # Calculate position
     x = [0.5*(p[i][0]+q[i][0]) for i in range(n)]
     y = [0.5*(p[i][1]+q[i][1]) for i in range(n)]
     p_3 =[ p[i][2] for i in range(n)]
@@ -120,10 +140,10 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     height = sum(p_3+q_3)/(2*n) + l/2
     
     
-    #Scaling to get absolute size 
+    # Scaling to get absolute size 
     height = height*(line_heigth/l)
     
-    #Ignore that positive or negative 
+    # Ignore that positive or negative 
     height = abs(height)
 
     # result 
@@ -180,7 +200,7 @@ def calib_camera_ransac(a, b,
     # Recalculate the number of inliers
     n = len(a)
     best_score = -1 
-    for i in range(ransac_trial): 
+    for r_t in range(ransac_trial): 
 
         # Select two points randomly
         indices = []
@@ -200,9 +220,11 @@ def calib_camera_ransac(a, b,
 
         line = np.array([-slope,1,-y_int])
         score  = 0 
-
+        errs = []
         for i in range(n): 
+            
             err = np.fabs(line[0] * lm[i] + line[1] * mu[i] + line[2])
+            errs.append(err)
             if err < ransac_tresh:
                 score += 1 
             
@@ -210,6 +232,10 @@ def calib_camera_ransac(a, b,
                 best_score = score 
                 best_pts = pts
                 best_idx = indices
+
+        if r_t == 0: 
+            trsh = calculate_threshold (errs)
+           
 
 
     # New a,b and lm,mu 
@@ -234,7 +260,7 @@ def calib_camera_ransac(a, b,
     except np.linalg.LinAlgError:
         return "nan"
     
-    #Solve theta and phif
+    # Solve theta and phif
     try:
         length = norm(kinv@c)
     except (np.linalg.LinAlgError, ValueError):
@@ -243,7 +269,7 @@ def calib_camera_ransac(a, b,
     theta = np.arccos(r3[2])
     phi = np.arctan(-r3[0]/r3[1])
     
-    #Sovle the height of camera and position of two lines
+    # Sovle the height of camera and position of two lines
     Q=np.diag((1,1,-1))
     
     Rx = np.array([[1., 0, 0], [0, np.cos(theta), -np.sin(theta)], [0, np.sin(theta), np.cos(theta)]])
@@ -257,7 +283,7 @@ def calib_camera_ransac(a, b,
     lma2 = lma2[:, np.newaxis]
     P = Q @ R.T @ kinv @ np.hstack((lma1,lma2))
     
-    #Scaling
+    # Scaling
     height = P[2][0] * (line_height / length)  
     
     # result 
@@ -268,7 +294,7 @@ def calib_camera_ransac(a, b,
     return result
 
 
-#Calibartion Algorithm using n line segments 
+# Calibartion Algorithm using n line segments 
 def calib_camera_nlines_ransac(a,b,
                             iqr =True,
                             line_height=None,
@@ -315,7 +341,8 @@ def calib_camera_nlines_ransac(a,b,
 
     # Using RANSAC delete Outlier 
     ransac_trial, ransac_tresh, best_score = r_iter ,trsh ,-1 
-    for i in range(ransac_trial): 
+    
+    for r_t in range(ransac_trial): 
         # Select a points 
         indices = []
         pts = []
@@ -333,27 +360,31 @@ def calib_camera_nlines_ransac(a,b,
 
         line = np.array([-slope,1,-y_int])
         score  = 0 
+        errs = []
         for i in range(n): 
             err = np.fabs(line[0]*lm[i]+line[1]*mu[i]+line[2])
+            errs.append(err)
             if err < ransac_tresh:
                 score += 1
 
             if best_score < score: 
                 best_score = score
-                best_line = line 
-    
+                best_line = line
+        
+           
+        
     erase = []
     for i in range(n):
         err = np.fabs(best_line[0]*lm[i]+best_line[1]*mu[i]+best_line[2])
         if err > ransac_tresh:
             erase.append(i)
-    
-    # Delete outlier a
-    for e in erase:
-        a.remove(e)
-        b.remove(e)
-        lm.remove(e)
-        mu.remove(e)
+  
+    # Delete outlier 
+    filter_mask = np.ones_like(lm.flatten(), dtype = bool)
+    filter_mask[erase] = False
+
+    a, b, lm, mu = a[filter_mask], b[filter_mask], lm[filter_mask], mu[filter_mask]
+    n = len(a)
     #Calculate 'f' using Equation (24)
     c = mu * b - lm * a
     d = lm * a - lm[0] * a[0]
@@ -413,9 +444,10 @@ def calib_camera_nlines_ransac(a,b,
     Q =np.diag([1,1,-1]) 
     pq = []
     for i in range(n):
-        lma = lm[i]*a[i]
+        
+        lma = lm[i] * a[i]
         lma = lma[:,np.newaxis]
-        mub = mu[i]*b[i]
+        mub = mu[i] * b[i]
         mub = mub[:,np.newaxis]
         ij = Q @ R.T @ kinv @ np.hstack((lma,mub))
         pq.append(ij)
@@ -587,12 +619,13 @@ if __name__ == "__main__":
     l = 1.  # length of lines [m]
     h = 3   #[m]
     theta_gt = np.deg2rad(20+90) # Camera 좌표계에서 바라보는 각도
-    phi_gt = np.deg2rad(0) # Camera 좌표계에서 바라보는 각도 
+    phi_gt = np.deg2rad(30) # Camera 좌표계에서 바라보는 각도 
     cam_pos = [0,0,h] # world 좌표계에서 카메라의 position 을 관찰 했을때 
     cam_w, cam_h =(1920, 1080)
     n = 300
     noise_mean = 0
-    noise_std = 6
+    noise_std = 2
+
     
     lines =[]
     for i in range(n):
@@ -625,27 +658,27 @@ if __name__ == "__main__":
     # Head point b 
     b =[bb[1] for bb in p_lines]
    
-    # calibration Result 
 
-    ret  = calib_camera_nlines_ransac(a, 
+    # Calculate RANSAC parameter 
+
+    # Calibration Result
+    
+    ret  = calib_camera_ransac(a, 
                                 b,
                                 line_height=l,
-                                r_iter = 150, trsh =3,
+                                r_iter = 60, trsh =0.0099,
                                 cam_w = cam_w,
                                 cam_h = cam_h)
-    
-    focal_length, theta, phi, height,viz = ret['f'],ret['theta'],ret['phi'],ret['height'],ret['viz']
-    
-
-    lm,mu = viz[:n,np.newaxis], viz [n:,np.newaxis]
-    lm_mu = lm/mu
    
-    # Visualize Outliers
-    x = outlier_iqr(lm_mu)
-    plt.scatter(np.arange(n),lm_mu)
-    plt.scatter(x, lm_mu[x], color = 'r')
+    focal_length, theta, phi, height= ret['f'],ret['theta'],ret['phi'],ret['height']
+    
+   
+    # # Visualize Outliers
+    # x = outlier_iqr(depth_ratio)
+    # plt.scatter(np.arange(n),depth_ratio)
+    # plt.scatter(x, depth_ratio[x], color = 'r')
     plt.xlabel("Index")
-    plt.ylabel("lambda divided mu")
+    plt.ylabel("Depth ratio")
     plt.show()
 
     print("1.define calibration :\n")
