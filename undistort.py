@@ -5,7 +5,7 @@ from scipy.optimize import least_squares
 from experiment import json2params, project_n_lines, calibrate
 import cv2 
 from pprint import pprint
-
+import warnings
 def gaussian_noise(x, mu, std):
     x_noisy = []
     for i in range(len(x)):
@@ -63,36 +63,19 @@ class ReprojectionError:
         R =  Rz @ Rx 
         T = -h * R[:,2]
 
-        A_reps, B_reps = [], [] 
+        A_ps, B_ps = [], [] 
         for A, B in zip(self.As, self.Bs):
-            A_rep = K @ (R @ A + T)
-            B_rep = K @ (R @ B + T)
+            A_p = K @ (R @ A + T)
+            B_p = K @ (R @ B + T)
             
-            A_rep /= A_rep[2]
-            A_rep = A_rep[:2]
-            B_rep /= B_rep[2]
-            B_rep = B_rep[:2]
-            A_reps.append(A_rep)
-            B_reps.append(B_rep)
-
-        errors = np.sum([self.dist(a, A_rep)**2 + self.dist(b, B_rep)**2 for a, A_rep, b, B_rep in zip(self.a_s, A_reps, self.b_s, B_reps)])
-
-        return errors
-
-    @staticmethod
-    def dist(x, y):
-        """
-        Compute the Euclidean distance between points x and y.
-
-        Args:
-            x: First point.
-            y: Second point.
-
-        Returns:
-            The Euclidean distance between x and y.
-        """
-        return np.linalg.norm(x-y)
-
+            A_p /= A_p[2]
+            A_p = A_p[:2]
+            B_p /= B_p[2]
+            B_p = B_p[:2]
+            A_ps.append(A_p)
+            B_ps.append(B_p)
+         
+        return np.array([(A_ps-self.a_s),(B_ps-self.b_s)]).flatten()
 # def get_reprojection_error(a_s:np.ndarray,
 #                        As:np.ndarray,
 #                        b_s:np.ndarray,
@@ -157,8 +140,8 @@ def get_leastsq(params, func):
     # get result of least square, res will be f, R, t 
     initial_guess = params.flatten()
     result = least_squares(func, initial_guess)
-    res = result.x
-
+    res = np.float64(result.x)
+    
     # get RMS 
     residuals_squared = result.fun**2
     mean_squared_residuals = np.mean(residuals_squared)
@@ -214,13 +197,20 @@ def project_n_lines(Xfs, Xhs, noise, **config):
 
 if __name__ == "__main__":
 
+    # Ignore warings in numpy 
+    warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
+    warnings.filterwarnings('ignore', category=RuntimeWarning)
     METADATA = "metadata/"
     CONFIG = METADATA + "calib_synthetic.json"
-    LINESEGDATA = METADATA+"line_seg_panoptic.json"
+    LINESEGDATA = METADATA + "line_seg_panoptic.json"
 
     # Create data 
-    config = json2params(CONFIG,"syn")
-    Xfs, Xhs = create_3D_data(n = 10, l = config["l"])
+    config = json2params(CONFIG, "syn")
+    pprint(f"1. Groundtruth\n")
+    print("\n")
+    pprint(f"focal length: {config['f']}, theta:{np.rad2deg(config['theta'])}, phi:{np.rad2deg(config['phi'])}, h: {config['height']}")
+    pprint("======================")
+    Xfs, Xhs = create_3D_data(n=10, l=config["l"])
     xfs, xhs = project_n_lines(Xfs, Xhs, noise=2.0,
                             theta = config["theta"],
                             phi = config["phi"],
@@ -239,6 +229,10 @@ if __name__ == "__main__":
     phi = calib_result[calibration_method]['phi']
     h = calib_result[calibration_method]['height']
 
+    pprint(f"2. initial guess")
+    print("\n")
+    pprint(f"focal length: {f}, theta:{np.rad2deg(theta)}, phi:{np.rad2deg(phi)}, h: {h}")
+    pprint("======================")
     # convert params to K,R,T
     params = np.array([f,theta,phi,h])
 
@@ -246,6 +240,8 @@ if __name__ == "__main__":
     func = ReprojectionError(xfs, Xfs, xhs, Xhs) 
     params_opt, RMS = get_leastsq(params, func)
 
-    pprint(params_opt)
+    pprint(f"3. Optimization result")
+    print("\n")
+    pprint(f"focal length: {params_opt[0]}, theta:{params_opt[1]}, phi:{params_opt[2]}, h: {params_opt[3]}")
     pprint(f"RMS error: {RMS}")
 
