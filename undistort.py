@@ -50,9 +50,10 @@ class ReprojectionError:
         h = params[3]
         
         # Convert params to K R T 
-        K = np.array([[f, 0., 0.], 
-                      [0.,f,  0.], 
-                      [0., 0., 1.]]) 
+        K =np.array([[f, 0., config["cam_w"]/2], 
+                    [0., f, config["cam_h"]/2], 
+                    [0., 0., 1.]]) 
+        
         Rx = np.array([[1., 0, 0], 
                        [0, np.cos(theta), -np.sin(theta)], 
                        [0, np.sin(theta), np.cos(theta)]])
@@ -134,14 +135,13 @@ class ReprojectionError:
 #     return errors
 
 def get_leastsq(params, func):
-    # params: f,R,T 
-    # func: will be 
+    # params: f, theta, phi, height
 
-    # get result of least square, res will be f, R, t 
     initial_guess = params.flatten()
     result = least_squares(func, initial_guess)
-    res = np.float64(result.x)
-    
+    res = result.x
+    print(result)
+
     # get RMS 
     residuals_squared = result.fun**2
     mean_squared_residuals = np.mean(residuals_squared)
@@ -233,15 +233,16 @@ if __name__ == "__main__":
     print("\n")
     pprint(f"focal length: {f}, theta:{np.rad2deg(theta)}, phi:{np.rad2deg(phi)}, h: {h}")
     pprint("======================")
-    # convert params to K,R,T
+    # Get estimated paramters from calibration as a optimization initial guess.
     params = np.array([f,theta,phi,h])
 
     # Reprojection error 
     func = ReprojectionError(xfs, Xfs, xhs, Xhs) 
+    # Least-square 
     params_opt, RMS = get_leastsq(params, func)
 
     pprint(f"3. Optimization result")
     print("\n")
-    pprint(f"focal length: {params_opt[0]}, theta:{params_opt[1]}, phi:{params_opt[2]}, h: {params_opt[3]}")
+    pprint(f"focal length: {params_opt[0]}, theta:{np.rad2deg(params_opt[1])}, phi:{np.rad2deg(params_opt[2])}, h: {params_opt[3]}")
     pprint(f"RMS error: {RMS}")
 
