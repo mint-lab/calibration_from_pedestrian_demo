@@ -154,7 +154,7 @@ def create_3D_data(n, l):
     Xhs, Xfs = [], []
     for _ in range(n):
         x = np.random.uniform(-2.5,2.5)
-        y = np.random.uniform(2,5) #Important to calculate Working distance correctly  
+        y = np.random.uniform(1,5) #Important to calculate Working distance correctly  
         Xfs.append(np.array([x,y,0]))
         Xhs.append(np.array([x,y,l]))
     Xfs, Xhs = np.array(Xfs), np.array(Xhs)
@@ -198,8 +198,9 @@ def project_n_lines(Xfs, Xhs, noise, **config):
 if __name__ == "__main__":
 
     # Ignore warings in numpy 
-    warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
-    warnings.filterwarnings('ignore', category=RuntimeWarning)
+    warnings.filterwarnings('ignore', category = np.VisibleDeprecationWarning)
+    warnings.filterwarnings('ignore', category = RuntimeWarning)
+
     METADATA = "metadata/"
     CONFIG = METADATA + "calib_synthetic.json"
     LINESEGDATA = METADATA + "line_seg_panoptic.json"
@@ -210,8 +211,8 @@ if __name__ == "__main__":
     print("\n")
     pprint(f"focal length: {config['f']}, theta:{np.rad2deg(config['theta'])}, phi:{np.rad2deg(config['phi'])}, h: {config['height']}")
     pprint("======================")
-    Xfs, Xhs = create_3D_data(n=10, l=config["l"])
-    xfs, xhs = project_n_lines(Xfs, Xhs, noise=2.0,
+    Xfs, Xhs = create_3D_data(n=100, l=config["l"])
+    xfs, xhs = project_n_lines(Xfs, Xhs, noise=2,
                             theta = config["theta"],
                             phi = config["phi"],
                             cam_pos = config["cam_pos"],
@@ -223,7 +224,7 @@ if __name__ == "__main__":
     calib_result = calibrate(xfs, xhs, config)
 
     # choose the results 
-    calibration_method = "RANSAC_IQR_2"
+    calibration_method = "IQR"
     f = calib_result[calibration_method]['f']
     theta = calib_result[calibration_method]['theta']
     phi = calib_result[calibration_method]['phi']
