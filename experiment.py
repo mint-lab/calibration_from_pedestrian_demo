@@ -233,7 +233,7 @@ if __name__ =="__main__" :
                     args = (a, b, config)
                     result = pool.apply_async(calibrate, args).get()
                     methods = result.keys()
-                    
+                    breakpoint()
                     for method in methods:
                         if result[method] !="nan":
                             for param in params:
