@@ -13,6 +13,7 @@ from multiprocessing import cpu_count
 import argparse
 import warnings
 import os 
+from undistort import ReprojectionError, get_leastsq
 METADATA = "metadata/"
 CONFIG = METADATA + "calib_synthetic.json"
 LINESEGDATA = METADATA+"line_seg_panoptic.json"
@@ -38,46 +39,58 @@ def json2params(filepath,
 def create_synthetic_data(n = 50, l = 1, noise = 2):
 
     # Draw lines  randomly
-    lines = []
-    for i in range(n):
-        x = np.random.randint(-2.5,2.5)
-        y = np.random.randint(2,5) #Important to calculate Working distance correctly  
-        lines.append(np.array([[x,y,0],
-                               [x,y,l]]))
+    As, Bs = [], []
+    for _ in range(n):
+        x = np.random.uniform(-2.5,2.5)
+        y = np.random.uniform(1,5) #Important to calculate Working distance correctly  
+        As.append(np.array([x,y,0]))
+        Bs.append(np.array([x,y,l]))
+    As, Bs = np.array(As), np.array(Bs)
 
     # Projecst line segments
-    data = project_n_lines(lines, 
+    a_s = project_n_lines(As, 
                            theta = config["theta"],
                            phi = config["phi"],
                            cam_pos = config["cam_pos"],
                            cam_w = config["cam_w"],
                            cam_h = config["cam_h"],
                            f = config["f"])
+    b_s = project_n_lines(Bs, 
+                        theta = config["theta"],
+                        phi = config["phi"],
+                        cam_pos = config["cam_pos"],
+                        cam_w = config["cam_w"],
+                        cam_h = config["cam_h"],
+                        f = config["f"])
 
     # Put noises in it 
-    data = gaussian_noise(data, 0, noise)
+    a_s = gaussian_noise(a_s, 0, noise)
+    b_s = gaussian_noise(b_s, 0, noise)
 
-    a = [aa[0] for aa in data]
-    b = [bb[1] for bb in data]
+    return As, Bs, a_s, b_s
 
-    return a , b
+def project_n_lines(Xs, **config):
+    xs= [] 
 
-def project_n_lines(lines:list, **config):
-    p_lines= [] 
-
-    Rx = np.array([[1., 0, 0], [0, np.cos(config["theta"]), -np.sin(config["theta"])], [0, np.sin(config["theta"]), np.cos(config["theta"])]])
-    Rz = np.array([[np.cos(config["phi"]), -np.sin(config["phi"]), 0], [np.sin(config["phi"]), np.cos(config["phi"]), 0], [0, 0, 1.]])
+    Rx = np.array([[1., 0, 0], 
+                   [0, np.cos(config["theta"]), -np.sin(config["theta"])], 
+                   [0, np.sin(config["theta"]), np.cos(config["theta"])]])
+    Rz = np.array([[np.cos(config["phi"]), -np.sin(config["phi"]), 0], 
+                   [np.sin(config["phi"]), np.cos(config["phi"]), 0], 
+                   [0, 0, 1.]])
     R_gt =  Rz @ Rx 
     r_gt = Rotation.from_matrix(R_gt)
 
     tvec_gt = -R_gt @ config["cam_pos"]
 
-    K =np.array([[config["f"], 0., config["cam_w"]/2], [0., config["f"], config["cam_h"]/2], [0., 0., 1.]]) 
-    for line in lines: #cv.projectpoints
-        x,_= cv2.projectPoints(line, r_gt.as_rotvec(), tvec_gt, K, np.zeros(4))
-        p_lines.append(x.squeeze(1))
+    K =np.array([[config["f"], 0., config["cam_w"]/2], 
+                 [0., config["f"], config["cam_h"]/2], 
+                 [0., 0., 1.]]) 
+    for X in Xs:
+        x,_= cv2.projectPoints(X, r_gt.as_rotvec(), tvec_gt, K, np.zeros(4))
+        xs.append(x.squeeze(1))
     
-    return p_lines
+    return xs
           
 def gaussian_noise(x, mu, std):
     x_noisy = []
@@ -94,7 +107,7 @@ def get_median(f_list):
 
 def calibrate(a,b,config):
     result = dict()
-        # iqr
+    # iqr
     iqr = calib_camera_stat(a, b, iqr = True, 
                             line_height = config["l"], 
                             cam_w = config["cam_w"], 
@@ -155,7 +168,27 @@ def calibrate(a,b,config):
 
     return result
 
+def optimize(calib_result, 
+             method,
+             As,
+             Bs,
+             a_s,
+             b_s):
+    # Get Estimated paramters as a initial guess 
+    f = calib_result[method]['f']
+    theta = calib_result[method]['theta']
+    phi = calib_result[method]['phi']
+    h = calib_result[method]['height']
+    params = np.array([f, theta, phi, h])
 
+    # Reprojection error 
+    func = ReprojectionError(a_s, As, b_s, Bs)
+    # Least-square 
+    params_opt, RMS = get_leastsq(params, func)
+
+    f, theta, phi, h = params_opt[0], params_opt[1], params_opt[2], params_opt[3]
+    return f, theta, phi, h
+    
 if __name__ =="__main__" : 
 
     # Ignore warings in numpy 
@@ -173,7 +206,7 @@ if __name__ =="__main__" :
     LINESEGDATA = METADATA + args.file
     
     # Synthetic
-    n = 100
+    n = 10
     iters = 1000
     noise_limit = 10 
 

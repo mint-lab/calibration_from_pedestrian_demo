@@ -235,7 +235,7 @@ if __name__ == "__main__":
     pprint(f"focal length: {f}, theta:{np.rad2deg(theta)}, phi:{np.rad2deg(phi)}, h: {h}")
     pprint("======================")
     # Get estimated paramters from calibration as a optimization initial guess.
-    params = np.array([f,theta,phi,h])
+    params = np.array([f, theta, phi, h])
 
     # Reprojection error 
     func = ReprojectionError(xfs, Xfs, xhs, Xhs) 
