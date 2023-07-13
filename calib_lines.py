@@ -116,6 +116,7 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     Rx = np.array([[1., 0, 0], [0, np.cos(theta), -np.sin(theta)], [0, np.sin(theta), np.cos(theta)]])
     Rz = np.array([[np.cos(phi), -np.sin(phi), 0], [np.sin(phi), np.cos(phi), 0], [0, 0, 1.]])
     R = Rz@Rx
+   
     # Closed form of estimated length of line segment
     l = r3.T@sum(kinv_cs)/n
 
@@ -133,12 +134,14 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     q = [q[:,1]  for q in pq]
     
     # Calculate position
-    x = [0.5*(p[i][0]+q[i][0]) for i in range(n)]
-    y = [0.5*(p[i][1]+q[i][1]) for i in range(n)]
+    x = np.array([0.5*(p[i][0]+q[i][0]) for i in range(n)])
+    y = np.array([0.5*(p[i][1]+q[i][1]) for i in range(n)])
+    xy = np.vstack((x,y)).T
+
+    # Calculate height
     p_3 =[ p[i][2] for i in range(n)]
     q_3 =[ q[i][2] for i in range(n)]
     height = sum(p_3+q_3)/(2*n) + l/2
-    
     
     # Scaling to get absolute size 
     height = height*(line_heigth/l)
@@ -146,11 +149,13 @@ def calib_camera_vanilla(a, b, line_heigth, **config):
     # Ignore that positive or negative 
     height = abs(height)
 
-    # result 
+    # Result 
     result ={'f': f, 
              'theta': theta, 
              'phi' : phi, 
-             'height': height}
+             'height': height,
+             'xy': xy,
+            }
     return result
     
 
@@ -185,6 +190,7 @@ def calib_camera_ransac(a, b,
     v = Vh[:][-1]
     lm, mu = v[:n, np.newaxis], v[n:, np.newaxis]
     lm_mu = lm/mu
+    
     # Delete Outliers 
     if iqr: 
         outlier_index= outlier_iqr(lm_mu)
@@ -234,7 +240,7 @@ def calib_camera_ransac(a, b,
                 best_idx = indices
 
         if r_t == 0: 
-            trsh = calculate_threshold (errs)
+            trsh = calculate_threshold(errs)
            
 
 
@@ -282,7 +288,7 @@ def calib_camera_ransac(a, b,
     lma2 = lm[1] * a[1]
     lma2 = lma2[:, np.newaxis]
     P = Q @ R.T @ kinv @ np.hstack((lma1,lma2))
-    
+    xy = P[:2,:].T
     # Scaling
     height = P[2][0] * (line_height / length)  
     
@@ -290,7 +296,8 @@ def calib_camera_ransac(a, b,
     result ={'f': f, 
              'theta': theta, 
              'phi' : phi, 
-             'height': height}
+             'height': height,
+             'xy': xy}
     return result
 
 
@@ -454,6 +461,11 @@ def calib_camera_nlines_ransac(a,b,
     p = [p[:,0]  for p in pq]
     q = [q[:,1]  for q in pq]
     
+    # Calculate position
+    x = np.array([0.5*(p[i][0]+q[i][0]) for i in range(n)])
+    y = np.array([0.5*(p[i][1]+q[i][1]) for i in range(n)])
+    xy = np.vstack((x,y)).T
+
     # Calculate the heigth
     p_3 =[ p[i][2] for i in range(n)]
     q_3 =[ q[i][2] for i in range(n)]
@@ -471,8 +483,7 @@ def calib_camera_nlines_ransac(a,b,
     result['theta'] =theta
     result['phi'] = phi
     result['height'] = height
-    result['viz'] =v
-   
+    result['xy'] = xy 
     return result
 
 
@@ -587,6 +598,11 @@ def calib_camera_stat(a, b, iqr = True, line_height=None, **config):
     p = [p[:,0]  for p in pq]
     q = [q[:,1]  for q in pq]
     
+    # Calculate position
+    x = np.array([0.5*(p[i][0]+q[i][0]) for i in range(n)])
+    y = np.array([0.5*(p[i][1]+q[i][1]) for i in range(n)])
+    xy = np.vstack((x,y)).T
+
     # Calculate the heigth
     p_3 =[ p[i][2] for i in range(n)]
     q_3 =[ q[i][2] for i in range(n)]
@@ -604,6 +620,7 @@ def calib_camera_stat(a, b, iqr = True, line_height=None, **config):
     result['theta'] =theta
     result['phi'] = phi
     result['height'] = height
+    result["xy"] = xy
  
     return result
 
@@ -666,13 +683,19 @@ if __name__ == "__main__":
     ret  = calib_camera_ransac(a, 
                                 b,
                                 line_height=l,
-                                r_iter = 60, trsh =0.0099,
+                                r_iter = 60, trsh =0.99,
+                                cam_w = cam_w,
+                                cam_h = cam_h)
+    
+    ret  = calib_camera_vanilla(a, 
+                                b,
+                                l,
                                 cam_w = cam_w,
                                 cam_h = cam_h)
    
     focal_length, theta, phi, height= ret['f'],ret['theta'],ret['phi'],ret['height']
     
-   
+    
     # # Visualize Outliers
     # x = outlier_iqr(depth_ratio)
     # plt.scatter(np.arange(n),depth_ratio)

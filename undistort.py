@@ -2,24 +2,15 @@ import numpy as np
 from scipy.spatial.distance import euclidean
 from scipy.spatial.transform import Rotation
 from scipy.optimize import least_squares
-from experiment import json2params, project_n_lines, calibrate
 import cv2 
 from pprint import pprint
 import warnings
-def gaussian_noise(x, mu, std):
-    x_noisy = []
-    for i in range(len(x)):
-        noise = mu + std*np.random.randn(len(x[0])) 
-        x_n = x[i] + noise
-        x_noisy.append(x_n)
-    x_noisy = [x[i] + np.random.normal(mu,std,size=x[0].shape) for i in range(len(x))]
-    return x_noisy
+from utils import json2params, calibrate, gaussian_noise
 
 class ReprojectionError:
     def __init__(self, a_s:np.ndarray,
-                       As:np.ndarray,
                        b_s:np.ndarray,
-                       Bs:np.ndarray):
+                       n: int):
         """
         Initialize the ReprojectionError object with the given parameters.
 
@@ -30,9 +21,10 @@ class ReprojectionError:
             Bs: 3D points of head
         """
         self.a_s = a_s
-        self.As = As
+        #self.As = As
         self.b_s = b_s
-        self.Bs = Bs
+        #self.Bs = Bs
+        self.n = n 
 
     def __call__(self, params):
         """
@@ -48,6 +40,9 @@ class ReprojectionError:
         theta = params[1]
         phi = params[2]
         h = params[3]
+        xs = params[4 : 4 + self.n]
+        ys = params[4 + self.n : ]
+
         
         # Convert params to K R T 
         K =np.array([[f, 0., config["cam_w"]/2], 
@@ -64,8 +59,12 @@ class ReprojectionError:
         R =  Rz @ Rx 
         T = -h * R[:,2]
 
+        # remake Xfs, Xhs 
+        Xfs = np.array([[x, y, 0] for x, y in zip(xs,ys)])
+        Xhs = np.array([[x, y, h] for x, y in zip(xs,ys)])
+    
         A_ps, B_ps = [], [] 
-        for A, B in zip(self.As, self.Bs):
+        for A, B in zip(Xfs, Xhs):
             A_p = K @ (R @ A + T)
             B_p = K @ (R @ B + T)
             
@@ -77,70 +76,16 @@ class ReprojectionError:
             B_ps.append(B_p)
          
         return np.array([(A_ps-self.a_s),(B_ps-self.b_s)]).flatten()
-# def get_reprojection_error(a_s:np.ndarray,
-#                        As:np.ndarray,
-#                        b_s:np.ndarray,
-#                        Bs:np.ndarray,
-#                        params):
-#     """
-#     Obj:
-
-#         This method target for optimization of calibration results with estimated camera parameters as initial guesses.
-    
-#     params: 
-#         a is observed foot points in image plane   
-#         b is observed head points in image plane
-#         A is 3D points of foot
-#         B is 3D points of head 
-#         params is np.array([f,theta,phi,h])
-        
-    
-#     return:
-#         errors of each reprojection of line segments
-#     """
-    
-#     f = params[0]
-#     theta = params[1]
-#     phi = params[2]
-#     h = params[3]
-    
-#     # Convert params to K R T 
-#     K =np.array([[f, 0., 0.], 
-#                  [0.,f,  0.], 
-#                  [0., 0., 1.]]) 
-#     Rx = np.array([[1., 0, 0], 
-#                    [0, np.cos(theta), -np.sin(theta)], 
-#                    [0, np.sin(theta), np.cos(theta)]])
-#     Rz = np.array([[np.cos(phi), -np.sin(phi), 0], 
-#                    [np.sin(phi), np.cos(phi), 0], 
-#                    [0, 0, 1.]])
-    
-#     R =  Rz @ Rx 
-#     T = -h * R[:,2]
-
-#     A_reps, B_reps = [], [] 
-#     for A, B in zip(As, Bs):
-#         A_rep = K @ (R @ A + T)
-#         B_rep = K @ (R @ B + T)
-        
-#         A_rep /= A_rep[2]
-#         A_rep = A_rep[:2]
-#         B_rep /= B_rep[2]
-#         B_rep = B_rep[:2]
-#         A_reps.append(A_rep)
-#         B_reps.append(B_rep)
-
-#     errors = np.sum([dist(a, A_rep)**2 + dist(b, B_rep)**2 for a, A_rep, b, B_rep in zip(a_s, A_reps, b_s, B_reps)])
-    
-#     return errors
 
 def get_leastsq(params, func):
     # params: f, theta, phi, height
 
     initial_guess = params.flatten()
+
     result = least_squares(func, initial_guess)
     res = result.x
-    print(result)
+    print(f'Optimization Result:{result.success}')
+    print(" ")
 
     # get RMS 
     residuals_squared = result.fun**2
@@ -148,7 +93,6 @@ def get_leastsq(params, func):
     rms = np.sqrt(mean_squared_residuals)
 
     return res, rms 
-
 
 def create_3D_data(n, l):
     Xhs, Xfs = [], []
@@ -196,11 +140,11 @@ def project_n_lines(Xfs, Xhs, noise, **config):
     
 
 if __name__ == "__main__":
-
     # Ignore warings in numpy 
     warnings.filterwarnings('ignore', category = np.VisibleDeprecationWarning)
     warnings.filterwarnings('ignore', category = RuntimeWarning)
-
+    
+    # Metadata
     METADATA = "metadata/"
     CONFIG = METADATA + "calib_synthetic.json"
     LINESEGDATA = METADATA + "line_seg_panoptic.json"
@@ -211,8 +155,10 @@ if __name__ == "__main__":
     print("\n")
     pprint(f"focal length: {config['f']}, theta:{np.rad2deg(config['theta'])}, phi:{np.rad2deg(config['phi'])}, h: {config['height']}")
     pprint("======================")
-    Xfs, Xhs = create_3D_data(n=100, l=config["l"])
-    xfs, xhs = project_n_lines(Xfs, Xhs, noise=2,
+
+    n = 40
+    Xfs, Xhs = create_3D_data(n = n, l=config["l"])
+    xfs, xhs = project_n_lines(Xfs, Xhs, noise = 4,
                             theta = config["theta"],
                             phi = config["phi"],
                             cam_pos = config["cam_pos"],
@@ -224,21 +170,28 @@ if __name__ == "__main__":
     calib_result = calibrate(xfs, xhs, config)
 
     # choose the results 
-    calibration_method = "IQR"
+    calibration_method = "Vanilla model"
     f = calib_result[calibration_method]['f']
     theta = calib_result[calibration_method]['theta']
     phi = calib_result[calibration_method]['phi']
     h = calib_result[calibration_method]['height']
-
+    xy = calib_result[calibration_method]['xy']
+    x = xy.T[0]
+    y = xy.T[1]
     pprint(f"2. initial guess")
     print("\n")
     pprint(f"focal length: {f}, theta:{np.rad2deg(theta)}, phi:{np.rad2deg(phi)}, h: {h}")
     pprint("======================")
+    
     # Get estimated paramters from calibration as a optimization initial guess.
     params = np.array([f, theta, phi, h])
+    params = np.hstack([params, x.flatten()])
+    params = np.hstack([params, y.flatten()])
+
 
     # Reprojection error 
-    func = ReprojectionError(xfs, Xfs, xhs, Xhs) 
+    func = ReprojectionError(xfs, xhs, n) 
+
     # Least-square 
     params_opt, RMS = get_leastsq(params, func)
 

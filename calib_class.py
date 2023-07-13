@@ -180,24 +180,5 @@ class Calbirator_twolines(Calibrator):
 
         self.lm, self.mu, self.a, self.b = self.lm[mask], self.mu[mask], self.a[mask], self.b[mask]
 
-    def ransac(self): 
-        best_score = -1 
-        # Select two points randomly
-        indices = np.random.choice(n, 2, replace=False)
-        pts = [[self.lm[i], self.mu[i]] for i in indices]
-
-        # Make a line 
-        (x1, y1), (x2, y2) = pts
-        slope =  (y2 - y1) / (x2 - x1)
-        y_int =  y1 - slope * x1
-        line = np.array([-slope,1,-y_int])
-        
-        err = np.fabs(line[0] * self.lm + line[1] * self.mu + line[2])
-        score = err.sum()
-        if best_score < score: 
-            best_score = score 
-            best_pts = pts
-            best_idx = indices
-
         
 

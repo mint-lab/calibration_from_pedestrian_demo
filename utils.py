@@ -5,12 +5,7 @@ import json
 import matplotlib.pyplot as plt 
 from calib_lines import calib_camera_nlines_ransac, calib_camera_stat, calib_camera_vanilla, calib_camera_ransac
 from pprint import pprint
-import multiprocessing
-from multiprocessing import cpu_count
-import argparse
-import warnings
 import cv2 
-import os 
 import statistics
 
 # Put noises in data 
